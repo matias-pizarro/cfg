@@ -1,0 +1,26 @@
+/usr/local/etc/sasldb2.db
+/etc/spwd.db
+/etc/pwd.db
+/var/unbound/root.key
+/var/unbound/forward.conf
+/etc/rc.conf-E
+/etc/zfs/exports.lock
+/usr/local/etc/cups/subscriptions.conf*
+
+
+# vm
+/vm/.iso
+/vm/.img
+/vm/images
+/vm/**/*.img
+/vm/**/*.lock
+/vm/**/*.log
+/vm/**/console
+
+# poudrière
+/usr/local/etc/poudriere.d/ports/**/timestamp
+
+# vmware (guest)
+/etc/vmware-tools
+/usr/local/etc/pam.d/vmtoolsd
+/usr/local/etc/rc.d/vmware-*

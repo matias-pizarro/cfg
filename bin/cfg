@@ -1,0 +1,149 @@
+#!/bin/sh -e
+
+if [ "$( whoami )" = "root" ]; then
+    DOAS_CMD=""
+else
+    DOAS_CMD=doas
+    command -v ${DOAS_CMD} > /dev/null || DOAS_CMD=sudo
+    command -v ${DOAS_CMD} > /dev/null || DOAS_CMD=none
+    if [ "${DOAS_CMD}" = "none" ]; then
+        echo "ERROR: sudo or equivalent not found"
+        exit 2
+    fi
+fi
+
+DOAS_CMD=$(which ${DOAS_CMD})
+CFG_REPO_ROOT="${CFG_REPO_ROOT:-/usr/local/cfg}"
+CFG_ZFS_ROOT="${CFG_ZFS_ROOT:-zroot/CONFIG}"
+BOX_CONFIG_NAME="${BOX_CONFIG_NAME:-$(hostname)}"
+USER_CONFIGS_PREFIX="${USER_CONFIGS_PREFIX:-user_}"
+BASE_BOX_ADD_ITEMS=" \
+    /.gitignore \
+    /boot/loader.conf \
+    /etc \
+    /usr/local/cfg/info \
+    /usr/local/etc \
+    /usr/local/jails \
+    /var/cron/tabs \
+    /var/unbound/ \
+    /vm
+"
+
+if [ -f /usr/local/etc/cfg.conf ]; then
+  . /usr/local/etc/cfg.conf
+fi
+
+ADD="false"
+USER_DOAS_CMD="${DOAS_CMD}"
+
+if [ "${1}" = "--gui" ]; then
+    GITK=$(which gitk)
+    CHOWN_GITK_ROOT="false"
+    shift 1
+elif [ "${1}" = "--add" ]; then
+    ADD="true"
+    shift 1
+fi
+
+if [ "${1}" = "--box" ]; then
+    MODE="box"
+    CONFIG_NAME="${BOX_CONFIG_NAME}"
+    WORK_TREE=/
+    shift 1
+elif [ "${1}" = "--root" ]; then
+    MODE="root"
+    CONFIG_NAME="${USER_CONFIGS_PREFIX}root"
+    WORK_TREE=/root
+    shift 1
+else
+    MODE="user"
+    CONFIG_NAME="${USER_CONFIGS_PREFIX}$(whoami)"
+    WORK_TREE="${HOME}"
+    USER_DOAS_CMD=""
+    CHOWN_GITK_ROOT="true"
+fi
+
+ZFS_BASE_PROPERTIES="\
+name,canmount,mounted,mountpoint,readonly,compression,copies,checksum,\
+encryptionroot,encryption,keyformat,keylocation,quota,atime,exec,setuid,copies,\
+sync,sharenfs,sharesmb\
+"
+
+ZFS_FULL_PROPERTIES="\
+name,type,creation,used,available,referenced,ratio,mounted,origin,quota,\
+reservation,volsize,volblocksize,recordsize,mountpoint,sharenfs,checksum,\
+compression,compressratio,atime,devices,exec,setuid,readonly,jailed,snapdir,\
+aclmode,aclinherit,createtxg,canmount,xattr,copies,version,utf8only,\
+normalization,casesensitivity,vscan,nbmand,sharesmb,refquota,refreservation,\
+guid,primarycache,secondarycache,usedbysnapshots,usedbydataset,usedbychildren,\
+usedbyrefreservation,defer_destroy,userrefs,logbias,objsetid,dedup,mlslabel,\
+sync,dnodesize,refratio,written,clones,logicalused,logicalreferenced,volmode,\
+filesystem_limit,sslimit,filesystem_count,sscount,snapdev,acltype,context,\
+fscontext,defcontext,rootcontext,relatime,redundant_metadata,overlay,resumetok,\
+receive_resume_token,encryption,keylocation,keyformat,pbkdf2iters,\
+encryptionroot,keystatus,special_small_blocks,redact_snaps,snapshots_changed,\
+prefetch\
+"
+
+CONFIG_REPO="${CFG_REPO_ROOT}/${CONFIG_NAME}"
+BOX_INFO_REPO="${CFG_REPO_ROOT}/info/${BOX_CONFIG_NAME}"
+CONFIG_DATASET="${CFG_ZFS_ROOT}/${CONFIG_NAME}"
+GITK_ROOT="${CFG_REPO_ROOT}/gitk/${CONFIG_NAME}"
+GITK_LN="${GITK_ROOT}/.git"
+
+if [ ! -d "${CONFIG_REPO}" ]; then
+    if [ -n "${CFG_ZFS_ROOT}" ]; then
+        ${DOAS_CMD} zfs create -p -o mountpoint="${CONFIG_REPO}" "${BOX_CONFIG_DATASET}"
+    else
+        ${DOAS_CMD} mkdir -p "${CONFIG_REPO}"
+    fi
+    if [ ! -d "${CONFIG_REPO}" ]; then
+        echo "ERROR: ${CONFIG_REPO} does not exist"
+        exit 1
+    fi
+fi
+
+if [ ! -d "${BOX_INFO_REPO}" ]; then
+    ${DOAS_CMD} mkdir -p "${BOX_INFO_REPO}"
+fi
+
+pkg_info() {
+    doas pkg prime-origins | uniq | \
+        doas dd of="${BOX_INFO_REPO}"/pkg_prime_info.txt;
+    ${DOAS_CMD} pkg info | \
+        ${DOAS_CMD} dd of="${BOX_INFO_REPO}"/pkg_full_info.txt;
+}
+
+zfs_base_info() {
+    ${DOAS_CMD} zfs list -o ${ZFS_BASE_PROPERTIES} | \
+        ${DOAS_CMD} dd of="${BOX_INFO_REPO}"/zfs_base_info.txt
+}
+
+zfs_full_info() {
+    ${DOAS_CMD} zfs list -o ${ZFS_FULL_PROPERTIES} | \
+        ${DOAS_CMD} dd of="${BOX_INFO_REPO}"/zfs_full_info.txt
+}
+
+if [ ! -L "${GITK_LN}" ]; then
+    ${DOAS_CMD} mkdir -p "${GITK_ROOT}"
+    ${DOAS_CMD} ln -sF "${CONFIG_REPO}" "${GITK_LN}"
+fi
+
+if [ "${CHOWN_GITK_ROOT}" = "true" ]; then
+    ${DOAS_CMD} chown ${USER} "${GITK_ROOT}"
+fi
+
+if [ -n "${GITK}" ]; then
+    cd "${GITK_ROOT}" && ${USER_DOAS_CMD} ${GITK} &
+elif [ "${ADD}" = "true" ]; then
+    if [ "${MODE}" = "box" ]; then
+        pkg_info 1> /dev/null    2> /dev/null
+        zfs_base_info 1> /dev/null    2> /dev/null
+        zfs_full_info 1> /dev/null    2> /dev/null
+        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}/" --work-tree=${WORK_TREE} add ${BASE_BOX_ADD_ITEMS}
+    else
+        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}/" --work-tree=${WORK_TREE} add ${WORK_TREE}
+    fi
+else
+    ${DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}/" --work-tree=${WORK_TREE} ${1+"$@"}
+fi

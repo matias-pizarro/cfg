@@ -1,0 +1,37 @@
+# root location of cfg git repositories
+# default: /usr/local/cfg
+# CFG_REPO_ROOT="/usr/local/cfg"
+
+# root cfg ZFS dataset - ignored if zfs is not active
+# default: zroot/CONFIG
+# CFG_ZFS_ROOT="zroot/CONFIG"
+
+# this machine's cfg git repository
+# default: the output of command 'hostname'
+# BOX_CONFIG_NAME="$(hostname)"
+
+# the prefix used to mark user-specific cfg git repository
+# default: user_
+# USER_CONFIGS_PREFIX="user_"
+
+# files and directories git-added when running bcfgadd / cfg --box --add
+# default: /.gitignore \
+#          /boot/loader.conf \
+#          /etc \
+#          /usr/local/cfg/info \
+#          /usr/local/etc \
+#          /usr/local/jails \
+#          /var/cron/tabs \
+#          /var/unbound/ \
+#          /vm
+# BASE_BOX_ADD_ITEMS=" \
+#     /.gitignore \
+#     /boot/loader.conf \
+#     /etc \
+#     /usr/local/cfg/info \
+#     /usr/local/etc \
+#     /usr/local/jails \
+#     /var/cron/tabs \
+#     /var/unbound/ \
+#     /vm
+# "
