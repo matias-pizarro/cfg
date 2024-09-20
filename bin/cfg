@@ -140,10 +140,10 @@ elif [ "${ADD}" = "true" ]; then
         pkg_info 1> /dev/null    2> /dev/null
         zfs_base_info 1> /dev/null    2> /dev/null
         zfs_full_info 1> /dev/null    2> /dev/null
-        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}/" --work-tree=${WORK_TREE} add ${BASE_BOX_ADD_ITEMS}
+        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}" --work-tree=${WORK_TREE} add ${BASE_BOX_ADD_ITEMS}
     else
-        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}/" --work-tree=${WORK_TREE} add ${WORK_TREE}
+        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}" --work-tree=${WORK_TREE} add ${WORK_TREE}
     fi
 else
-    ${DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}/" --work-tree=${WORK_TREE} ${1+"$@"}
+    ${DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}" --work-tree=${WORK_TREE} ${1+"$@"}
 fi
