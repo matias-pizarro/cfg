@@ -6,4 +6,4 @@ cfg
       /_____/  / /___/ __/ / /_/ /  /_____/     
                \____/_/    \____/               
 
-Utility to version-control machine configurations.
+Utility to version-control machine and user configurations.

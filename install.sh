@@ -12,3 +12,4 @@ if [ ! -f /.gitignore ]; then
 fi
 gzip --to-stdout ./cfg.8 | dd of=/usr/local/share/man/man8/cfg.8.gz 1> /dev/null    2> /dev/null
 echo "install: ./cfg.8 -> /usr/local/share/man/man8/cfg.8.gz"
+echo ""
