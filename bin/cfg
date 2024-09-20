@@ -1,5 +1,12 @@
 #!/bin/sh -e
 
+GIT_CMD=git
+command -v ${GIT_CMD} > /dev/null || GIT_CMD=none
+if [ "${GIT_CMD}" = "none" ]; then
+    echo "ERROR: git executable not found."
+    exit 1
+fi
+
 if [ "$( whoami )" = "root" ]; then
     DOAS_CMD=""
 else
@@ -7,10 +14,19 @@ else
     command -v ${DOAS_CMD} > /dev/null || DOAS_CMD=sudo
     command -v ${DOAS_CMD} > /dev/null || DOAS_CMD=none
     if [ "${DOAS_CMD}" = "none" ]; then
-        echo "ERROR: sudo or equivalent not found"
+        echo "ERROR: sudo executable or equivalent not found. Please run as root."
         exit 2
     fi
 fi
+
+check_for_gitk () {
+    GITK_CMD=gitk
+    command -v ${GITK_CMD} > /dev/null || GITK_CMD=none
+    if [ "${GITK_CMD}" = "none" ]; then
+        echo "ERROR: gitk executable not found."
+        exit 3
+    fi
+}
 
 DOAS_CMD=$(which ${DOAS_CMD})
 CFG_REPO_ROOT="${CFG_REPO_ROOT:-/usr/local/cfg}"
@@ -37,6 +53,7 @@ ADD="false"
 USER_DOAS_CMD="${DOAS_CMD}"
 
 if [ "${1}" = "--gui" ]; then
+    check_for_gitk
     GITK=$(which gitk)
     CHOWN_GITK_ROOT="false"
     shift 1
@@ -99,7 +116,7 @@ if [ ! -d "${CONFIG_REPO}" ]; then
     fi
     if [ ! -d "${CONFIG_REPO}" ]; then
         echo "ERROR: ${CONFIG_REPO} does not exist"
-        exit 1
+        exit 4
     fi
 fi
 
