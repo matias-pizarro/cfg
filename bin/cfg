@@ -167,7 +167,7 @@ if [ "${CHOWN_CFG_GITK_DIR}" = "true" ]; then
     ${DOAS_CMD} chown ${USER} "${CFG_GITK_DIR}"
 fi
 
-if [ ! -d "${CFG_GIT_DIR}/.git" ]; then
+if [ ! -f "${CFG_GIT_DIR}/HEAD" ]; then
     ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} init
 fi
 
