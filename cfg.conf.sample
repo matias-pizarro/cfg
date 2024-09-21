@@ -19,21 +19,29 @@
 # USER_CONFIGS_PREFIX="user_"
 
 # files and directories git-added when running bcfgadd / cfg --box --add
-# default: /.gitignore \
+# default: /.cshrc \
+#          /.gitignore \
+#          /.profile \
+#          /boot/efi \
 #          /boot/loader.conf \
+#          /COPYRIGHT \
 #          /etc \
 #          /usr/local/cfg/info \
 #          /usr/local/etc \
 #          /usr/local/jails \
 #          /var/cron/tabs \
-#          /var/unbound/
+#          /var/unbound
 # BASE_BOX_ADD_ITEMS=" \
+#     /.cshrc \
 #     /.gitignore \
+#     /.profile \
+#     /boot/efi \
 #     /boot/loader.conf \
+#     /COPYRIGHT \
 #     /etc \
 #     /usr/local/cfg/info \
 #     /usr/local/etc \
 #     /usr/local/jails \
 #     /var/cron/tabs \
-#     /var/unbound/
+#     /var/unbound
 # "

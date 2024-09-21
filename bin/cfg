@@ -36,13 +36,17 @@ CFG_ROOT_ZFS="${CFG_ROOT_ZFS:-zroot/CONFIG}"
 BOX_CFG_REPO_NAME="${BOX_CFG_REPO_NAME:-$(hostname)}"
 USER_CONFIGS_PREFIX="${USER_CONFIGS_PREFIX:-user_}"
 BASE_BOX_ADD_ITEMS=" \
+    /.cshrc \
     /.gitignore \
+    /.profile \
+    /boot/efi \
     /boot/loader.conf \
+    /COPYRIGHT \
     /etc \
     /usr/local/cfg/info \
     /usr/local/etc \
     /var/cron/tabs \
-    /var/unbound/ \
+    /var/unbound/
 "
 
 if [ -f /usr/local/etc/cfg.conf ]; then
