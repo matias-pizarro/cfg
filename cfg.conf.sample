@@ -2,6 +2,10 @@
 # default: /usr/local/cfg
 # CFG_REPO_ROOT="/usr/local/cfg"
 
+# use zfs to store data (true|false)
+# default: true
+# USE_ZFS="true"
+
 # root cfg ZFS dataset - ignored if zfs is not active
 # default: zroot/CONFIG
 # CFG_ZFS_ROOT="zroot/CONFIG"
@@ -22,8 +26,7 @@
 #          /usr/local/etc \
 #          /usr/local/jails \
 #          /var/cron/tabs \
-#          /var/unbound/ \
-#          /vm
+#          /var/unbound/
 # BASE_BOX_ADD_ITEMS=" \
 #     /.gitignore \
 #     /boot/loader.conf \
@@ -32,6 +35,5 @@
 #     /usr/local/etc \
 #     /usr/local/jails \
 #     /var/cron/tabs \
-#     /var/unbound/ \
-#     /vm
+#     /var/unbound/
 # "

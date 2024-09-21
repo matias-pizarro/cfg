@@ -1,21 +1,23 @@
-/usr/local/etc/sasldb2.db
-/etc/spwd.db
 /etc/pwd.db
-/var/unbound/root.key
-/var/unbound/forward.conf
 /etc/rc.conf-E
+/etc/spwd.db
+/etc/ssh/ssh_host_*_key
 /etc/zfs/exports.lock
 /usr/local/etc/cups/subscriptions.conf*
+/usr/local/etc/sasldb2.db
 
+# unbound
+/var/unbound/forward.conf
+/var/unbound/root.key
 
 # vm
-/vm/.iso
-/vm/.img
-/vm/images
-/vm/**/*.img
-/vm/**/*.lock
-/vm/**/*.log
-/vm/**/console
+/usr/local/vm/.iso
+/usr/local/vm/.img
+/usr/local/vm/images
+/usr/local/vm/**/*.img
+/usr/local/vm/**/*.lock
+/usr/local/vm/**/*.log
+/usr/local/vm/**/console
 
 # poudrière
 /usr/local/etc/poudriere.d/ports/**/timestamp

@@ -8,6 +8,7 @@ if [ "${GIT_CMD}" = "none" ]; then
 fi
 
 if [ "$( whoami )" = "root" ]; then
+    IS_ROOT="true"
     DOAS_CMD=""
 else
     DOAS_CMD=doas
@@ -17,6 +18,7 @@ else
         echo "ERROR: sudo executable or equivalent not found. Please run as root."
         exit 2
     fi
+    DOAS_CMD=$(which ${DOAS_CMD})
 fi
 
 check_for_gitk () {
@@ -28,10 +30,10 @@ check_for_gitk () {
     fi
 }
 
-DOAS_CMD=$(which ${DOAS_CMD})
-CFG_REPO_ROOT="${CFG_REPO_ROOT:-/usr/local/cfg}"
-CFG_ZFS_ROOT="${CFG_ZFS_ROOT:-zroot/CONFIG}"
-BOX_CONFIG_NAME="${BOX_CONFIG_NAME:-$(hostname)}"
+CFG_ROOT_DIR="${CFG_ROOT_DIR:-/usr/local/cfg}"
+USE_ZFS="${USE_ZFS:-true}"
+CFG_ROOT_ZFS="${CFG_ROOT_ZFS:-zroot/CONFIG}"
+BOX_CFG_REPO_NAME="${BOX_CFG_REPO_NAME:-$(hostname)}"
 USER_CONFIGS_PREFIX="${USER_CONFIGS_PREFIX:-user_}"
 BASE_BOX_ADD_ITEMS=" \
     /.gitignore \
@@ -39,10 +41,8 @@ BASE_BOX_ADD_ITEMS=" \
     /etc \
     /usr/local/cfg/info \
     /usr/local/etc \
-    /usr/local/jails \
     /var/cron/tabs \
     /var/unbound/ \
-    /vm
 "
 
 if [ -f /usr/local/etc/cfg.conf ]; then
@@ -55,7 +55,7 @@ USER_DOAS_CMD="${DOAS_CMD}"
 if [ "${1}" = "--gui" ]; then
     check_for_gitk
     GITK=$(which gitk)
-    CHOWN_GITK_ROOT="false"
+    CHOWN_CFG_GITK_DIR="false"
     shift 1
 elif [ "${1}" = "--add" ]; then
     ADD="true"
@@ -64,20 +64,20 @@ fi
 
 if [ "${1}" = "--box" ]; then
     MODE="box"
-    CONFIG_NAME="${BOX_CONFIG_NAME}"
+    CFG_REPO_NAME="${BOX_CFG_REPO_NAME}"
     WORK_TREE=/
     shift 1
 elif [ "${1}" = "--root" ]; then
     MODE="root"
-    CONFIG_NAME="${USER_CONFIGS_PREFIX}root"
+    CFG_REPO_NAME="${USER_CONFIGS_PREFIX}root"
     WORK_TREE=/root
     shift 1
 else
     MODE="user"
-    CONFIG_NAME="${USER_CONFIGS_PREFIX}$(whoami)"
+    CFG_REPO_NAME="${USER_CONFIGS_PREFIX}$(whoami)"
     WORK_TREE="${HOME}"
     USER_DOAS_CMD=""
-    CHOWN_GITK_ROOT="true"
+    CHOWN_CFG_GITK_DIR="true"
 fi
 
 ZFS_BASE_PROPERTIES="\
@@ -102,65 +102,82 @@ encryptionroot,keystatus,special_small_blocks,redact_snaps,snapshots_changed,\
 prefetch\
 "
 
-CONFIG_REPO="${CFG_REPO_ROOT}/${CONFIG_NAME}"
-BOX_INFO_REPO="${CFG_REPO_ROOT}/info/${BOX_CONFIG_NAME}"
-CONFIG_DATASET="${CFG_ZFS_ROOT}/${CONFIG_NAME}"
-GITK_ROOT="${CFG_REPO_ROOT}/gitk/${CONFIG_NAME}"
-GITK_LN="${GITK_ROOT}/.git"
-
-if [ ! -d "${CONFIG_REPO}" ]; then
-    if [ -n "${CFG_ZFS_ROOT}" ]; then
-        ${DOAS_CMD} zfs create -p -o mountpoint="${CONFIG_REPO}" "${BOX_CONFIG_DATASET}"
-    else
-        ${DOAS_CMD} mkdir -p "${CONFIG_REPO}"
+if [ "${USE_ZFS}" = "true" ]; then
+    if [ -n "zfs list ${CFG_ROOT_ZFS} 2>&1 | grep 'does not exist'" ]; then
+        ${DOAS_CMD} zfs create -p -o mountpoint="${CFG_ROOT_DIR}" "${CFG_ROOT_ZFS}"
     fi
-    if [ ! -d "${CONFIG_REPO}" ]; then
-        echo "ERROR: ${CONFIG_REPO} does not exist"
+    # The current mountpoint can differ
+    # e.g. when the pool is mounted in an alternate location
+    CURRENT_CFG_ROOT_DIR="$(${DOAS_CMD} zfs get -H -o value mountpoint ${CFG_ROOT_ZFS})"
+    if [ ! "${CURRENT_CFG_ROOT_DIR}" = "${CFG_ROOT_DIR}" ]; then
+        echo "ERROR: ${CFG_ROOT_DIR} is currently mounted on ${CURRENT_CFG_ROOT_DIR}"
+        exit 4
+    fi
+    if [ ! -d "${CFG_ROOT_DIR}" ]; then
+        echo "ERROR: ${CFG_ROOT_DIR} does not exist"
+        exit 5
+    fi
+fi
+
+CFG_REPO_ZFS="${CFG_ROOT_ZFS}/${CFG_REPO_NAME}"
+CFG_GIT_DIR="${CFG_ROOT_DIR}/${CFG_REPO_NAME}"
+CFG_GITK_DIR="${CFG_ROOT_DIR}/gitk/${CFG_REPO_NAME}"
+CFG_GITK_SYMLINK="${CFG_GITK_DIR}/.git"
+BOX_INFO_DIR="${CFG_ROOT_DIR}/info/${BOX_CFG_REPO_NAME}"
+
+if [ ! -d "${CFG_GIT_DIR}" ]; then
+    if [ "${USE_ZFS}" = "true" ]; then
+        ${DOAS_CMD} zfs create -p "${CFG_REPO_ZFS}"
+    else
+        ${DOAS_CMD} mkdir -p "${CFG_GIT_DIR}"
+    fi
+    if [ ! -d "${CFG_GIT_DIR}" ]; then
+        echo "ERROR: ${CFG_GIT_DIR} does not exist"
         exit 4
     fi
 fi
 
-if [ ! -d "${BOX_INFO_REPO}" ]; then
-    ${DOAS_CMD} mkdir -p "${BOX_INFO_REPO}"
+if [ ! -d "${BOX_INFO_DIR}" ]; then
+    ${DOAS_CMD} mkdir -p "${BOX_INFO_DIR}"
 fi
 
 pkg_info() {
-    doas pkg prime-origins | uniq | \
-        doas dd of="${BOX_INFO_REPO}"/pkg_prime_info.txt;
+    ${DOAS_CMD} pkg prime-origins | uniq | \
+        ${DOAS_CMD} dd of="${BOX_INFO_DIR}"/pkg_prime_info.txt;
     ${DOAS_CMD} pkg info | \
-        ${DOAS_CMD} dd of="${BOX_INFO_REPO}"/pkg_full_info.txt;
+        ${DOAS_CMD} dd of="${BOX_INFO_DIR}"/pkg_full_info.txt;
 }
 
 zfs_base_info() {
     ${DOAS_CMD} zfs list -o ${ZFS_BASE_PROPERTIES} | \
-        ${DOAS_CMD} dd of="${BOX_INFO_REPO}"/zfs_base_info.txt
+        ${DOAS_CMD} dd of="${BOX_INFO_DIR}"/zfs_base_info.txt
 }
 
 zfs_full_info() {
     ${DOAS_CMD} zfs list -o ${ZFS_FULL_PROPERTIES} | \
-        ${DOAS_CMD} dd of="${BOX_INFO_REPO}"/zfs_full_info.txt
+        ${DOAS_CMD} dd of="${BOX_INFO_DIR}"/zfs_full_info.txt
 }
 
-if [ ! -L "${GITK_LN}" ]; then
-    ${DOAS_CMD} mkdir -p "${GITK_ROOT}"
-    ${DOAS_CMD} ln -sF "${CONFIG_REPO}" "${GITK_LN}"
+if [ ! -L "${CFG_GITK_SYMLINK}" ]; then
+    ${DOAS_CMD} mkdir -p "${CFG_GITK_DIR}"
+    ${DOAS_CMD} ln -sF "${CFG_GIT_DIR}" "${CFG_GITK_SYMLINK}"
 fi
 
-if [ "${CHOWN_GITK_ROOT}" = "true" ]; then
-    ${DOAS_CMD} chown ${USER} "${GITK_ROOT}"
+if [ "${CHOWN_CFG_GITK_DIR}" = "true" ]; then
+    ${DOAS_CMD} chown ${USER} "${CFG_GITK_DIR}"
 fi
 
 if [ -n "${GITK}" ]; then
-    cd "${GITK_ROOT}" && ${USER_DOAS_CMD} ${GITK} &
+    cd "${CFG_GITK_DIR}" && ${USER_DOAS_CMD} ${GITK} &
 elif [ "${ADD}" = "true" ]; then
     if [ "${MODE}" = "box" ]; then
         pkg_info 1> /dev/null    2> /dev/null
         zfs_base_info 1> /dev/null    2> /dev/null
         zfs_full_info 1> /dev/null    2> /dev/null
-        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}" --work-tree=${WORK_TREE} add ${BASE_BOX_ADD_ITEMS}
+        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${BASE_BOX_ADD_ITEMS}
     else
-        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}" --work-tree=${WORK_TREE} add ${WORK_TREE}
+        ${USER_DOAS_CMD} /usr/local/bin/git --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${WORK_TREE}
     fi
 else
-    ${DOAS_CMD} /usr/local/bin/git --git-dir="${CONFIG_REPO}" --work-tree=${WORK_TREE} ${1+"$@"}
+    ${DOAS_CMD} /usr/local/bin/git --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${1+"$@"}
 fi
