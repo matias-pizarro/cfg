@@ -1,0 +1,513 @@
+#!/bin/sh
+# 
+# For the POSIX-shell script scaffolding and coding style, inspired by poudriere:
+#   Copyright (c) 2010-2013 Baptiste Daroussin <bapt@FreeBSD.org>
+#   Copyright (c) 2012-2013 Bryan Drewery <bdrewery@FreeBSD.org>
+# For the rest of the script:
+#   Copyright (c) 2023-2024 Matias Pizarro <matias@pizarro.net>
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+
+# TODO handle creation of rw clone of ro repos
+# TODO msg_debug, _error etc...
+# at the moment we can compare a userr against itself, across arbitrary hosts
+# TODO be able to compare a user against another, across arbitrary hosts
+# TODO limit 'add' and 'passthrough' + commit-like to an expert mode
+#      (where you could compose a diff to be applied somewhere else)
+# TODO add examples in README.md
+# TODO move helper functions to an include?
+
+LC_ALL=C
+CFG_VERSION='0.1.6'
+CFG_NAME="cfg"
+CFG_PKGNAME="${CFG_NAME}-${CFG_VERSION}"
+TARGET=
+MODE=
+HOSTNAME="$(hostname)"
+CMD_USER="$(whoami)"
+USERNAME="${CMD_USER}"
+DRY_RUN=
+DRY_RUN_CMD=
+IS_ROOT=
+USE_ZFS=yes
+USE_DEBUG=
+PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:/usr/local/bin:${PATH}"
+VERBOSE=0
+
+ECHO_CMD=$(command -v echo) || ECHO_CMD=none
+GIT_CMD=$(command -v git) || GIT_CMD=none
+GITK_CMD=$(command -v gitk) || GITK_CMD=none
+
+env_set() {
+    local envvar="$1"
+    local envvalue="${2:-"\${${envvar}}"}"
+
+    CMD_ENV_S="${CMD_ENV_S:+${CMD_ENV_S} }\"${envvar}=${envvalue}\""
+    _EXPORT_LIST="${_EXPORT_LIST:+${_EXPORT_LIST} }${envvar}"
+}
+
+# Exporting saved until last to not impact any tests between env_set and
+# env -S.
+env_export() {
+    export ${_EXPORT_LIST}
+}
+
+_msg_n() {
+    echo "\n" "$@"
+}
+
+msg() {
+    echo "\n" "$@"
+}
+
+msg_error() {
+    local -; set +x
+    local MSG_NESTED
+    local prefix
+
+    prefix="${DEV_ERROR:+Dev }Error:"
+    MSG_NESTED="${MSG_NESTED_STDERR:-0}"
+    case "${MY_JOBID:+set}" in
+    set)
+        # Send colored msg to bulk log...
+        COLOR_ARROW="${COLOR_ERROR}" \
+            job_msg "${COLOR_ERROR}${prefix}${COLOR_RESET}" "$@"
+        # Needed hack for test output ordering
+        if [ "${IN_TEST:-0}" -eq 1 -a -n "${TEE_SLEEP_TIME-}" ]; then
+            sleep "${TEE_SLEEP_TIME}"
+        fi
+        # And non-colored to buld log
+        msg "${prefix}" "$@" >&2
+        ;;
+    *)
+        # Send to true stderr
+        COLOR_ARROW="${COLOR_ERROR}" \
+            echo "${COLOR_ERROR}${prefix}${COLOR_RESET}" "$@" \
+            >&2
+        ;;
+    esac
+    return 0
+}
+
+msg_dev() {
+    local -; set +x
+    local MSG_NESTED
+
+    MSG_NESTED="${MSG_NESTED_STDERR:-0}"
+    COLOR_ARROW="${COLOR_DEV}" \
+        _msg_n "\n" "${COLOR_DEV}Dev:${COLOR_RESET}" "$@" >&2
+}
+
+msg_debug() {
+    local -; set +x
+    local MSG_NESTED
+
+    MSG_NESTED="${MSG_NESTED_STDERR:-0}"
+    COLOR_ARROW="${COLOR_DEBUG}" \
+        _msg_n "\n" "${COLOR_DEBUG}Debug:${COLOR_RESET}" "$@" >&2
+}
+
+check_for_git () {
+    if [ "${GIT_CMD}" = "none" ]; then
+        msg_error "git executable not found."
+        exit 3
+    fi
+}
+
+check_for_gitk () {
+    if [ "${GITK_CMD}" = "none" ]; then
+        msg_error "gitk executable not found."
+        exit 3
+    fi
+}
+
+msg_warn() {
+    local -; set +x
+    local MSG_NESTED MSG_NESTED_STDERR prefix
+
+    : "${MSG_NESTED_STDERR:=0}"
+    MSG_NESTED="${MSG_NESTED_STDERR}"
+    if [ "${MSG_NESTED_STDERR}" -eq 0 ]; then
+        prefix="Warning:"
+    else
+        unset prefix
+    fi
+    COLOR_ARROW="${COLOR_WARN}" \
+        _msg_n "\n" ${prefix:+"${COLOR_WARN}${prefix}${COLOR_RESET}"} \
+        "$@" >&2
+}
+
+BASE_HOST_ADD_ITEMS=" \
+    /.cshrc \
+    /.gitignore \
+    /.profile \
+    /boot/efi \
+    /boot/loader.conf \
+    /COPYRIGHT \
+    /etc \
+    /usr/local/cfg/info \
+    /usr/local/etc \
+    /var/cron/tabs \
+    /var/unbound/
+"
+
+ZFS_BASE_PROPERTIES="\
+name,canmount,mounted,mountpoint,readonly,compression,copies,checksum,\
+encryptionroot,encryption,keyformat,keylocation,quota,atime,exec,setuid,copies,\
+sync,sharenfs,sharesmb\
+"
+
+ZFS_FULL_PROPERTIES="\
+name,type,creation,used,available,referenced,ratio,mounted,origin,quota,\
+reservation,volsize,volblocksize,recordsize,mountpoint,sharenfs,checksum,\
+compression,compressratio,atime,devices,exec,setuid,readonly,jailed,snapdir,\
+aclmode,aclinherit,createtxg,canmount,xattr,copies,version,utf8only,\
+normalization,casesensitivity,vscan,nbmand,sharesmb,refquota,refreservation,\
+guid,primarycache,secondarycache,usedbysnapshots,usedbydataset,usedbychildren,\
+usedbyrefreservation,defer_destroy,userrefs,logbias,objsetid,dedup,mlslabel,\
+sync,dnodesize,refratio,written,clones,logicalused,logicalreferenced,volmode,\
+filesystem_limit,sslimit,filesystem_count,sscount,snapdev,acltype,context,\
+fscontext,defcontext,rootcontext,relatime,redundant_metadata,overlay,resumetok,\
+receive_resume_token,encryption,keylocation,keyformat,pbkdf2iters,\
+encryptionroot,keystatus,special_small_blocks,redact_snaps,snapshots_changed,\
+prefetch\
+"
+
+usage() {
+    cat << EOF
+Usage: cfg [-hu] [-pag] [-H host] [-U user] [-nv] command [options]
+
+Options:
+    -h          -- target=host [default]
+    -u          -- target=user
+    -p          -- mode=passthrough - pass all arguments to git [default]
+    -a          -- mode=add - execute git add with configurable preset lists
+                   of files/directories
+    -g          -- mode=gui - invoke the gitk git GUI
+    -H          -- host (defaults to the output of command 'hostname')
+    -U          -- user (defaults to the output of command 'whoami')
+    -n          -- dry-run - show the command that would be executed and exits
+    -v          -- Be verbose; show more information. Use twice to enable
+                   debug output
+Commands:
+    help        -- shows this help message and exits
+    version     -- Show the version of cfg
+EOF
+    exit 1
+}
+
+if [ -f /usr/local/etc/cfg.conf ]; then
+  . /usr/local/etc/cfg.conf
+fi
+
+ROOT_DIR="${ROOT_DIR:-/usr/local/cfg}"
+ZPOOL="${ZPOOL:-zroot}"
+ZROOTFS="${ZROOTFS:-/CONFIG}"
+ROOT_ZFS="${ZPOOL}${ZROOTFS}"
+
+while getopts "hupagH:U:nvd" FLAG; do
+    case "${FLAG}" in
+    h)
+        if [ -n "${TARGET}" ]; then
+            msg_error "you cannot invoke -h and -u at the same time"
+            usage
+        fi
+        TARGET='host'
+        ;;
+    u)
+        if [ -n "${TARGET}" ]; then
+            msg_error "you cannot invoke -h and -u at the same time"
+            usage
+        fi
+        TARGET='user'
+        ;;
+    p)
+        if [ -n "${MODE}" ]; then
+            msg_error "you cannot invoke -p, -a or -g at the same time"
+            usage
+        fi
+        MODE='passthrough'
+        ;;
+    a)
+        if [ -n "${MODE}" ]; then
+            msg_error "you cannot invoke -p, -a or -g at the same time"
+            usage
+        fi
+        MODE='add'
+        ;;
+    g)
+        if [ -n "${MODE}" ]; then
+            msg_error "you cannot invoke -p, -a or -g at the same time"
+            usage
+        fi
+        MODE='gui'
+        ;;
+    H)
+        # TODO check local existence of repo
+        # if [ ! -d "$OPTARG" ]; then
+        #     echo "Error: argument '$OPTARG' not a directory"
+        #     exit 1
+        # fi
+        HOSTNAME="$OPTARG"
+        if expr "a@a@a@a@${HOSTNAME}@a@a@a@a" : "a@a@a@a@-" 1> /dev/null  2> /dev/null; then
+            msg_error "The hostname cannot start with a dash or be empty";
+            usage
+        fi
+        ;;
+    U)
+        # TODO check local existence of repo
+        # if [ ! -d "$OPTARG" ]; then
+        #     echo "Error: argument '$OPTARG' not a directory"
+        #     exit 1
+        # fi
+        USERNAME="$OPTARG"
+        if expr "a@a@a@a@${USERNAME}@a@a@a@a" : "a@a@a@a@-" 1> /dev/null  2> /dev/null; then
+            msg_error "The username cannot start with a dash or be empty";
+            usage
+        fi
+        ;;
+    n)
+        DRY_RUN="yes"
+        DRY_RUN_CMD="${ECHO_CMD}"
+        ;;
+    v)
+        VERBOSE=$((${VERBOSE:-0} + 1))
+        ;;
+    d)
+        USE_DEBUG="yes"
+        ;;
+    *)
+        usage
+        ;;
+    esac
+done
+
+shift $((OPTIND-1))
+
+if [ $# -lt 1 ]; then
+    CMD="status"
+else
+    CMD="$1"
+fi
+shift
+
+[ ${VERBOSE} -lt 2 ] || VERBOSE=2
+[ "${NO_ZFS}" = "yes" ] && USE_ZFS="no"
+TARGET="${TARGET:-host}"
+MODE="${MODE:-passthrough}"
+
+if [ "$( whoami )" = "root" ]; then
+    IS_ROOT="yes"
+    DOAS_CMD=""
+    USER_DOAS_CMD=""
+else
+    IS_ROOT="no"
+    DOAS_CMD=$(command -v doas) || DOAS_CMD=sudo
+    DOAS_CMD=$(command -v ${DOAS_CMD}) || DOAS_CMD=none
+    if [ "${DOAS_CMD}" = "none" ]; then
+        msg_error "doas and sudo executables not found. Please run as root."
+        exit 2
+    fi
+fi
+
+ROOT_USER_ID="$( ${USER_DOAS_CMD} pw user show -n root | awk -F ':' '{print $3}' )"
+ROOT_GROUP_ID="$( ${USER_DOAS_CMD} pw user show -n root | awk -F ':' '{print $4}' )"
+if [ "${TARGET}" = "user" ]; then
+    # users operating on their own profile:
+    #    - the git repo should belong to them
+    #    - they should not be using doas/sudo
+    if [ "${USERNAME}" = "${CMD_USER}" ]; then
+        USER_DOAS_CMD=""
+    else
+        USER_DOAS_CMD="${DOAS_CMD}"
+    fi
+    USER_ID=$( ${USER_DOAS_CMD} pw user show -n ${USERNAME} | awk -F ':' '{print $3}' )
+    GROUP_ID=$( ${USER_DOAS_CMD} pw user show -n ${USERNAME} | awk -F ':' '{print $4}' )
+    USER_HOMEDIR=$( ${USER_DOAS_CMD} pw user show -n ${USERNAME} | awk -F ':' '{print $9}' )
+    CFG_REPO_NAME="user_${USERNAME}"
+    WORK_TREE="${USER_HOMEDIR}"
+elif [ "${TARGET}" = "host" ]; then
+    USER_DOAS_CMD="${DOAS_CMD}"
+    USER_ID="${ROOT_USER_ID}"
+    GROUP_ID="${ROOT_GROUP_ID}"
+    USER_HOMEDIR=na
+    CFG_REPO_NAME="host"
+    WORK_TREE=/
+fi
+
+env_set LC_ALL "${LC_ALL}"
+env_set CFG_VERSION "${CFG_VERSION}"
+env_set CFG_NAME "${CFG_NAME}"
+env_set CFG_PKGNAME "${CFG_PKGNAME}"
+env_set TARGET "${TARGET:-host}"
+env_set MODE "${MODE:-passthrough}"
+env_set HOSTNAME "${HOSTNAME}"
+env_set USERNAME "${USERNAME}"
+env_set ROOT_DIR "${ROOT_DIR}"
+env_set ZPOOL "${ZPOOL}"
+env_set ROOT_ZFS "${ROOT_ZFS}"
+env_set DRY_RUN "${DRY_RUN}"
+env_set USE_ZFS "${USE_ZFS}"
+env_set USE_DEBUG "${USE_DEBUG}"
+env_set PATH "${PATH}"
+env_set VERBOSE "${VERBOSE}"
+env_set TEST_ENV "${USERNAME}"
+env_set USER_ID "${USER_ID}"
+env_set GROUP_ID "${GROUP_ID}"
+env_set USER_HOMEDIR "${USER_HOMEDIR}"
+env_set CFG_REPO_NAME "${CFG_REPO_NAME}"
+env_set WORK_TREE "${WORK_TREE}"
+
+env_export
+
+if [ -n "${USE_DEBUG}" ]; then
+    exec env -i ${CMD_ENV_S:+-S "${CMD_ENV_S}"} env
+    msg_debug "ECHO_CMD: ${ECHO_CMD}"
+    msg_debug "GIT_CMD: ${GIT_CMD}"
+    msg_debug "GITK_CMD: ${GITK_CMD}"
+fi
+
+# DRY_RUN_CMD="${ECHO_CMD}"
+
+
+[ -n "${DRY_RUN_CMD}" ] && echo "This is a dry run. The following commands would be executed:"
+
+
+
+if [ "${USE_ZFS}" = "yes" ]; then
+    if [ -n "$(zfs list -H ${ROOT_ZFS} 2>&1 | grep 'does not exist')" ]; then
+        ${DRY_RUN_CMD} ${DOAS_CMD} zfs create -p -o mountpoint="${ROOT_DIR}" "${ROOT_ZFS}"
+    fi
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        # The current mountpoint can differ
+        # e.g. when the pool is mounted in an alternate location
+        CURRENT_ROOT_DIR="$(${DOAS_CMD} zfs get -H -o value mountpoint ${ROOT_ZFS})"
+        if [ ! "${CURRENT_ROOT_DIR}" = "${ROOT_DIR}" ]; then
+            msg_error "${ROOT_DIR} is currently mounted on ${CURRENT_ROOT_DIR}"
+            exit 4
+        fi
+        if [ ! -d "${ROOT_DIR}" ]; then
+            msg_error "${ROOT_DIR} does not exist"
+            exit 5
+        fi
+    fi
+fi
+
+CFG_GIT_ZFS="${ROOT_ZFS}/rw_repos/${HOSTNAME}/${CFG_REPO_NAME}"
+CFG_GIT_DIR="${ROOT_DIR}/rw_repos/${HOSTNAME}/${CFG_REPO_NAME}"
+CFG_GITK_DIR="${ROOT_DIR}/gitk/${HOSTNAME}/${CFG_REPO_NAME}"
+CFG_GITK_SYMLINK="${CFG_GITK_DIR}/.git"
+HOST_INFO_DIR="${ROOT_DIR}/info/${HOSTNAME}"
+
+if [ ! -d "${CFG_GIT_DIR}" ]; then
+    if [ "${USE_ZFS}" = "yes" ]; then
+        ${DRY_RUN_CMD} ${DOAS_CMD} zfs create -p "${CFG_GIT_ZFS}"
+    else
+        ${DRY_RUN_CMD} ${DOAS_CMD} mkdir -p "${CFG_GIT_DIR}"
+    fi
+    if [ -z "${DRY_RUN_CMD}" -a ! -d "${CFG_GIT_DIR}" ]; then
+        msg_error "${CFG_GIT_DIR} does not exist"
+        exit 4
+    fi
+fi
+
+if [ ! -d "${HOST_INFO_DIR}" ]; then
+    ${DRY_RUN_CMD} ${DOAS_CMD} mkdir -p "${HOST_INFO_DIR}"
+fi
+
+pkg_info() {
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        ${DOAS_CMD} pkg prime-origins | uniq | \
+            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/pkg_prime_info.txt;
+        ${DOAS_CMD} pkg info | \
+            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/pkg_full_info.txt;
+    else
+        echo "This would dump the output of 'pkg prime-origins | uniq' to ${HOST_INFO_DIR}/pkg_prime_info.txt"
+        echo "This would dump the output of 'pkg info' to ${HOST_INFO_DIR}/pkg_full_info.txt"
+    fi
+}
+
+zfs_base_info() {
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        ${DOAS_CMD} zfs list -o ${ZFS_BASE_PROPERTIES} | \
+            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_base_info.txt
+    else
+        echo "This would dump the output of 'zfs list -o <ZFS_BASE_PROPERTIES>' to ${HOST_INFO_DIR}/zfs_base_info.txt"
+    fi
+}
+
+zfs_full_info() {
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        ${DOAS_CMD} zfs list -o ${ZFS_FULL_PROPERTIES} | \
+            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_full_info.txt
+    else
+        echo "This would dump the output of 'zfs list -o <ZFS_FULL_PROPERTIES>' to ${HOST_INFO_DIR}/zfs_full_info.txt"
+    fi
+}
+
+[ -z "DRY_RUN_CMD" ] && check_for_git
+
+if [ ! -L "${CFG_GITK_SYMLINK}" ]; then
+    ${DRY_RUN_CMD} ${DOAS_CMD} mkdir -p "${CFG_GITK_DIR}"
+    ${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
+    ${DRY_RUN_CMD} ${USER_DOAS_CMD} ln -sF "${CFG_GIT_DIR}" "${CFG_GITK_SYMLINK}"
+fi
+
+${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GIT_DIR}"
+${DRY_RUN_CMD} ${DOAS_CMD} chown ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
+
+if [ ! -f "${CFG_GIT_DIR}/HEAD" ]; then
+    ${DRY_RUN_CMD} ${USER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} init
+    ${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GIT_DIR}"
+fi
+
+if [ "${MODE}" = "passthrough" ]; then
+    if [ "${TARGET}" = "host" ]; then
+        ${DRY_RUN_CMD} ${DOAS_CMD}      ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
+    else
+        ${DRY_RUN_CMD} ${USER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
+    fi
+elif [ "${MODE}" = "add" ]; then
+    if [ "${TARGET}" = "host" ]; then
+        pkg_info
+        zfs_base_info
+        zfs_full_info
+        ${DRY_RUN_CMD} ${DOAS_CMD}      ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${BASE_HOST_ADD_ITEMS}
+    else
+        ${DRY_RUN_CMD} ${USER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${WORK_TREE}
+    fi
+elif [ "${MODE}"="gui" ]; then
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        check_for_gitk
+        cd "${CFG_GITK_DIR}" && ${USER_DOAS_CMD} ${GITK_CMD} &
+    else
+        ${DRY_RUN_CMD} cd "${CFG_GITK_DIR}" \&\& ${USER_DOAS_CMD} ${GITK_CMD} \&
+    fi
+fi
+
+${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GIT_DIR}"
+${DRY_RUN_CMD} ${DOAS_CMD} chown ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
+
+# Example of running another script with the gathered environment
+# env -i ${CMD_ENV_S:+-S "${CMD_ENV_S}"} ${DRY_RUN_CMD} ${DOAS_CMD} ${GIT_CMD} \
+#     --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}

@@ -1,22 +1,28 @@
+# Cfg can optionally use ZFS for its git repositories storage. For
+# ZFS define ZPOOL, otherwise set NO_ZFS=yes
+#
+### NO ZFS
+# To not use ZFS, define NO_ZFS=yes
+#NO_ZFS=yes
+
+#### ZFS
+# The pool where cfg will create all the filesystems it needs
+# cfg will use ${ZPOOL}/${ZROOTFS} as its root
+#
+# You need at least 7GB of free space in this pool to have a working
+# cfg.
+#
+# default: zroot
+#ZPOOL=zroot
+
+# root of the cfg zfs filesystem, by default /cfg
+# default: /CONFIG
+# ZROOTFS=/CONFIG
+
 # root location of cfg git repositories
+# when using zfs this will be the mountpoint of ZROOTFS
 # default: /usr/local/cfg
-# CFG_REPO_ROOT="/usr/local/cfg"
-
-# use zfs to store data (true|false)
-# default: true
-# USE_ZFS="true"
-
-# root cfg ZFS dataset - ignored if zfs is not active
-# default: zroot/CONFIG
-# CFG_ZFS_ROOT="zroot/CONFIG"
-
-# this machine's cfg git repository
-# default: the output of command 'hostname'
-# BOX_CONFIG_NAME="$(hostname)"
-
-# the prefix used to mark user-specific cfg git repository
-# default: user_
-# USER_CONFIGS_PREFIX="user_"
+# ROOT_DIR="/usr/local/cfg"
 
 # files and directories git-added when running bcfgadd / cfg --box --add
 # default: /.cshrc \

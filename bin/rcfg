@@ -1,9 +1,0 @@
-#!/bin/sh
-
-CMD="$(which cfg)"
-if [ -z "${CMD}" ]; then
-    echo "ERROR: cfg command not found"
-    exit 1
-fi
-
-${CMD} --root ${1+"$@"}

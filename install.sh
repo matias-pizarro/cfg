@@ -1,6 +1,6 @@
 #!/bin/sh
 
-/usr/bin/install -v -m 0755 ./bin/* /usr/local/bin
+/usr/bin/install -v -m 0755 ./cfg /usr/local/bin
 mkdir -p /usr/local/share/cfg
 /usr/bin/install -v -m 0644 ./cfg.conf.sample /usr/local/share/cfg/cfg.conf.sample
 if [ ! -f /usr/local/etc/cfg.conf ]; then
