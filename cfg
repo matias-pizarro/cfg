@@ -72,6 +72,10 @@ env_export() {
     export ${_EXPORT_LIST}
 }
 
+msg_dry_run() {
+    echo "    # " "$@"
+}
+
 _msg_n() {
     echo "\n" "$@"
 }
@@ -161,14 +165,11 @@ BASE_HOST_ADD_ITEMS=" \
     /.cshrc \
     /.gitignore \
     /.profile \
-    /boot/efi \
     /boot/loader.conf \
     /COPYRIGHT \
     /etc \
-    /usr/local/cfg/info \
-    /usr/local/etc \
-    /var/cron/tabs \
-    /var/unbound/
+    /usr \
+    /var
 "
 
 ZFS_BASE_PROPERTIES="\
@@ -288,7 +289,7 @@ while getopts "hupagH:U:nvd" FLAG; do
         ;;
     n)
         DRY_RUN="yes"
-        DRY_RUN_CMD="${ECHO_CMD}"
+        DRY_RUN_CMD="msg_dry_run"
         ;;
     v)
         VERBOSE=$((${VERBOSE:-0} + 1))
@@ -390,7 +391,8 @@ fi
 # DRY_RUN_CMD="${ECHO_CMD}"
 
 
-[ -n "${DRY_RUN_CMD}" ] && echo "This is a dry run. The following commands would be executed:"
+[ -n "${DRY_RUN_CMD}" ] && echo
+[ -n "${DRY_RUN_CMD}" ] && echo "This is a dry run. The following commands will be executed if you remove -n:"
 
 
 
@@ -511,3 +513,5 @@ ${DRY_RUN_CMD} ${DOAS_CMD} chown ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
 # Example of running another script with the gathered environment
 # env -i ${CMD_ENV_S:+-S "${CMD_ENV_S}"} ${DRY_RUN_CMD} ${DOAS_CMD} ${GIT_CMD} \
 #     --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
+
+[ -n "${DRY_RUN_CMD}" ] && echo
