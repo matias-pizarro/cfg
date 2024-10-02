@@ -3,7 +3,7 @@
 #
 ### NO ZFS
 # To not use ZFS, define NO_ZFS=yes
-#NO_ZFS=yes
+# NO_ZFS=yes
 
 #### ZFS
 # The pool where cfg will create all the filesystems it needs
@@ -13,7 +13,7 @@
 # cfg.
 #
 # default: zroot
-#ZPOOL=zroot
+# ZPOOL=zroot
 
 # root of the cfg zfs filesystem, by default /cfg
 # default: /CONFIG
@@ -24,30 +24,28 @@
 # default: /usr/local/cfg
 # ROOT_DIR="/usr/local/cfg"
 
-# files and directories git-added when running bcfgadd / cfg --box --add
+# files and directories git-added when running cfg -a
 # default: /.cshrc \
 #          /.gitignore \
 #          /.profile \
 #          /boot/efi \
-#          /boot/loader.conf \
 #          /COPYRIGHT \
 #          /etc \
-#          /usr/local/cfg/info \
-#          /usr/local/etc \
-#          /usr/local/jails \
-#          /var/cron/tabs \
-#          /var/unbound
-# BASE_BOX_ADD_ITEMS=" \
+#          /usr \
+#          /var
+# BASE_HOST_ADD_ITEMS=" \
 #     /.cshrc \
 #     /.gitignore \
 #     /.profile \
 #     /boot/efi \
-#     /boot/loader.conf \
 #     /COPYRIGHT \
 #     /etc \
-#     /usr/local/cfg/info \
-#     /usr/local/etc \
-#     /usr/local/jails \
-#     /var/cron/tabs \
-#     /var/unbound
+#     /usr \
+#     /var
+# "
+
+# files and directories git-force-added when running cfg -a
+# default: /boot/loader.conf
+# BASE_HOST_FORCE_ADD_ITEMS=" \
+#     /boot/loader.conf \
 # "

@@ -39,8 +39,10 @@
 # TODO add examples in README.md
 # TODO move helper functions to an include?
 
+# create ro_repos
+
 LC_ALL=C
-CFG_VERSION='0.1.6'
+CFG_VERSION='0.1.9'
 CFG_NAME="cfg"
 CFG_PKGNAME="${CFG_NAME}-${CFG_VERSION}"
 TARGET=
@@ -175,11 +177,14 @@ BASE_HOST_ADD_ITEMS=" \
     /.cshrc \
     /.gitignore \
     /.profile \
-    /boot/loader.conf \
     /COPYRIGHT \
     /etc \
     /usr \
     /var
+"
+
+BASE_HOST_FORCE_ADD_ITEMS=" \
+    /boot/loader.conf
 "
 
 ZFS_BASE_PROPERTIES="\
@@ -682,6 +687,7 @@ elif [ "${MODE}" = "add" ]; then
         zfs_base_info
         zfs_full_info
         ${DRY_RUN_CMD} ${ROOT_DOAS_CMD}       ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${BASE_HOST_ADD_ITEMS}
+        ${DRY_RUN_CMD} ${ROOT_DOAS_CMD}       ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add -f ${BASE_HOST_FORCE_ADD_ITEMS}
     else
         ${DRY_RUN_CMD} ${REPO_OWNER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${WORK_TREE}
     fi
