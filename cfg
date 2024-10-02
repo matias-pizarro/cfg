@@ -28,9 +28,11 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
+# TODO prompt for missing git configs
+# TODO handle edge permissions mismatch cases by creation a cmd_user clone of
+#     the ro_repo?
 # TODO handle creation of rw clone of ro repos
 # TODO msg_debug, _error etc...
-# at the moment we can compare a userr against itself, across arbitrary hosts
 # TODO be able to compare a user against another, across arbitrary hosts
 # TODO limit 'add' and 'passthrough' + commit-like to an expert mode
 #      (where you could compose a diff to be applied somewhere else)
@@ -45,10 +47,14 @@ TARGET=
 MODE=
 HOSTNAME="$(hostname)"
 CMD_USER="$(whoami)"
-USERNAME="${CMD_USER}"
+if [ "${CMD_USER}" = "root" ]; then
+    IS_ROOT="yes"
+else
+    IS_ROOT="no"
+fi
+SHOW_SUMMARY=
 DRY_RUN=
 DRY_RUN_CMD=
-IS_ROOT=
 USE_ZFS=yes
 USE_DEBUG=
 PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:/usr/local/bin:${PATH}"
@@ -81,7 +87,7 @@ _msg_n() {
 }
 
 msg() {
-    echo "\n" "$@"
+    echo "$@"
 }
 
 msg_error() {
@@ -161,6 +167,10 @@ msg_warn() {
         "$@" >&2
 }
 
+user_exists() {
+    id "${1}" | wc -l | command tr -d ' '
+}
+
 BASE_HOST_ADD_ITEMS=" \
     /.cshrc \
     /.gitignore \
@@ -195,24 +205,57 @@ prefetch\
 "
 
 usage() {
-    cat << EOF
-Usage: cfg [-hu] [-pag] [-H host] [-U user] [-nv] command [options]
+    cat << 'EOF'
+cfg
+===
+
+Usage: cfg [-m|-u <user>] [-H <reference-host>] [-M|-U <reference-user>] [-pag] [-hsnv] command [options]
 
 Options:
-    -h          -- target=host [default]
-    -u          -- target=user
-    -p          -- mode=passthrough - pass all arguments to git [default]
-    -a          -- mode=add - execute git add with configurable preset lists
-                   of files/directories
-    -g          -- mode=gui - invoke the gitk git GUI
-    -H          -- host (defaults to the output of command 'hostname')
-    -U          -- user (defaults to the output of command 'whoami')
-    -n          -- dry-run - show the command that would be executed and exits
-    -v          -- Be verbose; show more information. Use twice to enable
-                   debug output
+    -m         ('me') lets the user running the script be the checked-out user
+    -u <user>  the checked-out user
+    -H <host>  the reference host   (defaults to the output of 'hostname')
+    -M         ('me') lets the user running the script be the reference user
+    -U <user>  the reference user   (defaults to the output of 'whoami')
+
+    -p          mode=passthrough     pass all arguments to git [default]
+    -a          mode=add             execute git add with configurable preset lists of files/directories
+    -g          mode=gui             invoke the gitk git GUI
+
+    -s          summary              show a summary of the execution context and exit
+    -n          dry-run              show the command that would be executed and exit
+    -v          verbose              show more information. Use twice to enable debug output
+    -d          debug                print variable values for debugging purposes and exit
+    -h          help                 Show this help message and exit
+
 Commands:
-    help        -- shows this help message and exits
-    version     -- Show the version of cfg
+    help        Shows this help message and exits
+    version     Shows the version of cfg and exits
+    <foo bar>   Passes <foo bar> to git/gitk
+
+Valid option combinations
+(their order is not relevant)
+target |    checked-out          |     reference            |  Command                                  
+       |  host        user       |  host        user        |                                           
+       |                         |                          |                                           
+ host  |  $(hostname) -          |  $(hostname) -           |  cfg                                      
+ host  |  $(hostname) -          |  <ref-host>  -           |  cfg           -H <ref-host>              
+       |                         |                          |                                           
+ user  |  $(hostname) $(whoami)  |  $(hostname) $(whoami)   |  cfg -m                                   
+ user  |  $(hostname) $(whoami)  |  $(hostname) <ref-user>  |  cfg                         -U <ref-user>
+ user  |  $(hostname) $(whoami)  |  $(hostname) <ref-user>  |  cfg -m                      -U <ref-user>
+ user  |  $(hostname) $(whoami)  |  <ref-host>  $(whoami)   |  cfg -m        -H <ref-host>              
+ user  |  $(hostname) $(whoami)  |  <ref-host>  <ref-user>  |  cfg           -H <ref-host> -U <ref-user>
+ user  |  $(hostname) $(whoami)  |  <ref-host>  <ref-user>  |  cfg -m        -H <ref-host> -U <ref-user>
+       |                         |                          |                                           
+ user  |  $(hostname) <user>     |  $(hostname) <user>      |  cfg -u <user>                            
+ user  |  $(hostname) <user>     |  $(hostname) $(whoami)   |  cfg -u <user>               -M           
+ user  |  $(hostname) <user>     |  $(hostname) <ref-user>  |  cfg -u <user>               -U <ref-user>
+ user  |  $(hostname) <user>     |  <ref-host>  <user>      |  cfg -u <user> -H <ref-host>              
+ user  |  $(hostname) <user>     |  <ref-host>  $(whoami)   |  cfg -u <user> -H <ref-host> -M           
+ user  |  $(hostname) <user>     |  <ref-host>  <ref-user>  |  cfg -u <user> -H <ref-host> -U <ref-user>
+
+
 EOF
     exit 1
 }
@@ -221,26 +264,35 @@ if [ -f /usr/local/etc/cfg.conf ]; then
   . /usr/local/etc/cfg.conf
 fi
 
-ROOT_DIR="${ROOT_DIR:-/usr/local/cfg}"
+CFG_ROOT_DIR="${CFG_ROOT_DIR:-/usr/local/cfg}"
 ZPOOL="${ZPOOL:-zroot}"
 ZROOTFS="${ZROOTFS:-/CONFIG}"
-ROOT_ZFS="${ZPOOL}${ZROOTFS}"
+CFG_ROOT_ZFS="${ZPOOL}${ZROOTFS}"
 
-while getopts "hupagH:U:nvd" FLAG; do
+CHECKED_OUT_HOST="${HOSTNAME}"
+CHECKED_OUT_USER="${CMD_USER}"
+REFERENCE_HOST="${HOSTNAME}"
+
+while getopts "mu:H:MU:pagsnvdh" FLAG; do
     case "${FLAG}" in
-    h)
-        if [ -n "${TARGET}" ]; then
-            msg_error "you cannot invoke -h and -u at the same time"
-            usage
-        fi
-        TARGET='host'
+    m)
+        TARGET='user'
+        CHECKED_OUT_USER="${CMD_USER}"
         ;;
     u)
-        if [ -n "${TARGET}" ]; then
-            msg_error "you cannot invoke -h and -u at the same time"
-            usage
-        fi
         TARGET='user'
+        CHECKED_OUT_USER="${OPTARG}"
+        ;;
+    H)
+        REFERENCE_HOST="$OPTARG"
+        ;;
+    M)
+        TARGET='user'
+        REFERENCE_USER="${CMD_USER}"
+        ;;
+    U)
+        TARGET='user'
+        REFERENCE_USER="$OPTARG"
         ;;
     p)
         if [ -n "${MODE}" ]; then
@@ -263,29 +315,8 @@ while getopts "hupagH:U:nvd" FLAG; do
         fi
         MODE='gui'
         ;;
-    H)
-        # TODO check local existence of repo
-        # if [ ! -d "$OPTARG" ]; then
-        #     echo "Error: argument '$OPTARG' not a directory"
-        #     exit 1
-        # fi
-        HOSTNAME="$OPTARG"
-        if expr "a@a@a@a@${HOSTNAME}@a@a@a@a" : "a@a@a@a@-" 1> /dev/null  2> /dev/null; then
-            msg_error "The hostname cannot start with a dash or be empty";
-            usage
-        fi
-        ;;
-    U)
-        # TODO check local existence of repo
-        # if [ ! -d "$OPTARG" ]; then
-        #     echo "Error: argument '$OPTARG' not a directory"
-        #     exit 1
-        # fi
-        USERNAME="$OPTARG"
-        if expr "a@a@a@a@${USERNAME}@a@a@a@a" : "a@a@a@a@-" 1> /dev/null  2> /dev/null; then
-            msg_error "The username cannot start with a dash or be empty";
-            usage
-        fi
+    s)
+        SHOW_SUMMARY="yes"
         ;;
     n)
         DRY_RUN="yes"
@@ -296,6 +327,9 @@ while getopts "hupagH:U:nvd" FLAG; do
         ;;
     d)
         USE_DEBUG="yes"
+        ;;
+    h)
+        usage
         ;;
     *)
         usage
@@ -312,49 +346,190 @@ else
 fi
 shift
 
+[ "${CMD}" = "help" ] && usage
 [ ${VERBOSE} -lt 2 ] || VERBOSE=2
 [ "${NO_ZFS}" = "yes" ] && USE_ZFS="no"
 TARGET="${TARGET:-host}"
 MODE="${MODE:-passthrough}"
-
-if [ "$( whoami )" = "root" ]; then
-    IS_ROOT="yes"
-    DOAS_CMD=""
-    USER_DOAS_CMD=""
-else
-    IS_ROOT="no"
-    DOAS_CMD=$(command -v doas) || DOAS_CMD=sudo
-    DOAS_CMD=$(command -v ${DOAS_CMD}) || DOAS_CMD=none
-    if [ "${DOAS_CMD}" = "none" ]; then
-        msg_error "doas and sudo executables not found. Please run as root."
-        exit 2
-    fi
-fi
-
-ROOT_USER_ID="$( ${USER_DOAS_CMD} pw user show -n root | awk -F ':' '{print $3}' )"
-ROOT_GROUP_ID="$( ${USER_DOAS_CMD} pw user show -n root | awk -F ':' '{print $4}' )"
 if [ "${TARGET}" = "user" ]; then
-    # users operating on their own profile:
-    #    - the git repo should belong to them
-    #    - they should not be using doas/sudo
-    if [ "${USERNAME}" = "${CMD_USER}" ]; then
-        USER_DOAS_CMD=""
-    else
-        USER_DOAS_CMD="${DOAS_CMD}"
-    fi
-    USER_ID=$( ${USER_DOAS_CMD} pw user show -n ${USERNAME} | awk -F ':' '{print $3}' )
-    GROUP_ID=$( ${USER_DOAS_CMD} pw user show -n ${USERNAME} | awk -F ':' '{print $4}' )
-    USER_HOMEDIR=$( ${USER_DOAS_CMD} pw user show -n ${USERNAME} | awk -F ':' '{print $9}' )
-    CFG_REPO_NAME="user_${USERNAME}"
-    WORK_TREE="${USER_HOMEDIR}"
-elif [ "${TARGET}" = "host" ]; then
-    USER_DOAS_CMD="${DOAS_CMD}"
-    USER_ID="${ROOT_USER_ID}"
-    GROUP_ID="${ROOT_GROUP_ID}"
-    USER_HOMEDIR=na
-    CFG_REPO_NAME="host"
-    WORK_TREE=/
+    REFERENCE_USER="${REFERENCE_USER:-${CHECKED_OUT_USER}}"
+else
+    CHECKED_OUT_USER=root
+    REFERENCE_USER=root
 fi
+
+# echo "target: ${TARGET}"
+# echo "checked_out_host: ${CHECKED_OUT_HOST}"
+# echo "checked_out_user: ${CHECKED_OUT_USER}"
+# echo "reference_host: ${REFERENCE_HOST}"
+# echo "reference_user: ${REFERENCE_USER}"
+# echo "mode: ${MODE}"
+# echo "dry_run: ${DRY_RUN}"
+# echo "verbose: ${VERBOSE}"
+# echo "use_debug: ${USE_DEBUG}"
+
+if [ "$(user_exists ${CHECKED_OUT_USER})" = 0 ]; then
+    CHECKED_OUT_USER_EXISTS="no"
+    # TODO: explain this user can be used as repo reference (-U) and later on might be supported for repo to repo diff
+    msg_error "${CHECKED_OUT_USER} does not exist on this machine."
+    exit 1
+else
+    CHECKED_OUT_USER_EXISTS="yes"
+fi
+
+if [ "$(user_exists ${REFERENCE_USER})" = 0 ]; then
+    # if the reference user does exist as a user on the machine
+    # the git repo should be owned by reference user
+    REPO_OWNER="root"
+    REFERENCE_USER_EXISTS="no"
+else
+    # if the reference user does exist as a user on the machine
+    # the git repo should be owned by reference user
+    REPO_OWNER="${REFERENCE_USER}"
+    REFERENCE_USER_EXISTS="yes"
+fi
+
+ROOT_DOAS_CMD=none
+CO_USER_DOAS_CMD=none
+REPO_OWNER_DOAS_CMD=none
+
+DOAS_SCORE=0
+DOAS_CMD=$(command -v doas) && DOAS_SCORE=1
+if [ "${DOAS_SCORE}" = "1" ]; then
+    if [ "${CMD_USER}" = "root" ]; then
+        DOAS_SCORE=2
+        ROOT_DOAS_CMD=""
+    else
+        ${DOAS_CMD} -u root id 1>/dev/null 2>/dev/null && DOAS_SCORE=2
+        if [ "${DOAS_SCORE}" = "2" ]; then
+            ROOT_DOAS_CMD="${DOAS_CMD} -u root"
+        else
+            MISSING_DOAS_ROOT_PERMISSIONS=yes
+        fi
+    fi
+
+    if [ "${CMD_USER}" = "${CHECKED_OUT_USER}" ]; then
+        DOAS_SCORE=$(($DOAS_SCORE+1))
+        CO_USER_DOAS_CMD=""
+    else
+        TALLY=${DOAS_SCORE}
+        ${DOAS_CMD} -u ${CHECKED_OUT_USER} id 1>/dev/null 2>/dev/null && DOAS_SCORE=$(($DOAS_SCORE+1))
+        if [ "${DOAS_SCORE}" -gt "${TALLY}" ]; then
+            CO_USER_DOAS_CMD="${DOAS_CMD} -u ${CHECKED_OUT_USER}"
+        else
+            MISSING_DOAS_CO_PERMISSIONS=yes
+        fi
+    fi
+
+    if [ "${CMD_USER}" = "${REPO_OWNER}" ]; then
+        DOAS_SCORE=$(($DOAS_SCORE+1))
+        REPO_OWNER_DOAS_CMD=""
+    else
+        TALLY=${DOAS_SCORE}
+        ${DOAS_CMD} -u ${REPO_OWNER} id 1>/dev/null 2>/dev/null && DOAS_SCORE=$(($DOAS_SCORE+1))
+        if [ "${DOAS_SCORE}" -gt "${TALLY}" ]; then
+            REPO_OWNER_DOAS_CMD="${DOAS_CMD} -u ${REPO_OWNER}"
+        else
+            MISSING_DOAS_REPO_OWNER_PERMISSIONS=yes
+        fi
+    fi
+fi
+
+SUDO_SCORE=0
+SUDO_CMD=$(command -v sudo) && SUDO_SCORE=1
+if [ "${SUDO_SCORE}" = "1" ]; then
+    if [ -z "${ROOT_DOAS_CMD}" ]; then
+        if [ "${CMD_USER}" = "root" ]; then
+            SUDO_SCORE=2
+            ROOT_DOAS_CMD=""
+        else
+            ${SUDO_CMD} -u root id 1>/dev/null 2>/dev/null && SUDO_SCORE=2
+            if [ "${SUDO_SCORE}" = "2" ]; then
+                ROOT_DOAS_CMD="${SUDO_CMD} -u root"
+            else
+                MISSING_SUDO_ROOT_PERMISSIONS=yes
+            fi
+        fi
+    fi
+
+    if [ -z "${CO_USER_DOAS_CMD}" ]; then
+        if [ "${CMD_USER}" = "${CHECKED_OUT_USER}" ]; then
+            SUDO_SCORE=$(($SUDO_SCORE+1))
+            CO_USER_DOAS_CMD=""
+        else
+            TALLY=${SUDO_SCORE}
+            ${SUDO_CMD} -u ${CHECKED_OUT_USER} id 1>/dev/null 2>/dev/null && SUDO_SCORE=$(($SUDO_SCORE+1))
+            if [ "${SUDO_SCORE}" -gt "${TALLY}" ]; then
+                CO_USER_DOAS_CMD="${SUDO_CMD} -u ${CHECKED_OUT_USER}"
+            else
+                MISSING_DOAS_CO_PERMISSIONS=yes
+            fi
+        fi
+    fi
+
+    if [ -z "${REPO_OWNER_DOAS_CMD}" ]; then
+        if [ "${REPO_OWNER}" = "${CMD_USER}" ]; then
+            SUDO_SCORE=$(($SUDO_SCORE+1))
+            REPO_OWNER_DOAS_CMD=""
+        else
+            TALLY=${SUDO_SCORE}
+            ${SUDO_CMD} -u ${REPO_OWNER} id 1>/dev/null 2>/dev/null && SUDO_SCORE=$(($SUDO_SCORE+1))
+            if [ "${SUDO_SCORE}" -gt "${TALLY}" ]; then
+                REPO_OWNER_DOAS_CMD="${SUDO_CMD} -u ${REPO_OWNER}"
+            else
+                MISSING_SUDO_REPO_OWNER_PERMISSIONS=yes
+            fi
+        fi
+    fi
+fi
+
+
+if [ "${CO_USER_DOAS_CMD}" = "none" -o "${REPO_OWNER_DOAS_CMD}" = "none" ]; then
+    if [ "${DOAS_CMD}" = "none" -a "${SUDO_CMD}" = "none" ]; then
+        msg_error "doas and sudo executables not found. Please run as root."
+    fi
+
+    # TODO: narrow down permission recommendations
+    msg "You need to add one of the following permissions for each user:"
+    [ -n "${MISSING_DOAS_CO_PERMISSIONS}" ] && msg_warn \
+        "  - /usr/local/etc/doas.conf: permit nopass keepenv ${CMD_USER} as ${CHECKED_OUT_USER}"
+    [ -n "${MISSING_SUDO_CO_PERMISSIONS}" ] && msg_warn \
+        "  - /usr/local/etc/sudoers.d/cfg.conf: ${CMD_USER} ALL=(${CHECKED_OUT_USER}) ALL"
+    if [ ! "${REPO_OWNER}" = "${CHECKED_OUT_USER}" ]; then
+        [ -n "${MISSING_DOAS_REPO_OWNER_PERMISSIONS}" ] && msg_warn \
+            "  - /usr/local/etc/doas.conf: permit nopass keepenv ${CMD_USER} as ${REPO_OWNER}"
+        [ -n "${MISSING_SUDO_REPO_OWNER_PERMISSIONS}" ] && msg_warn \
+            "  - /usr/local/etc/sudoers.d/cfg.conf: ${CMD_USER} ALL=(${REPO_OWNER}) ALL"
+    fi
+    exit 2
+fi
+
+
+if [ "${TARGET}" = "user" ]; then
+    CHECKED_OUT_HOMEDIR=$( ${ROOT_DOAS_CMD} pw user show -n ${CHECKED_OUT_USER} | awk -F ':' '{print $9}' )
+    WORK_TREE="${CHECKED_OUT_HOMEDIR}"
+    CFG_REPO_NAME="user_${REFERENCE_USER}"
+    if [ "${REFERENCE_USER_EXISTS}" = "yes" ]; then
+        REFERENCE_HOMEDIR=$( ${ROOT_DOAS_CMD} pw user show -n ${REFERENCE_USER} | awk -F ':' '{print $9}' )
+    else
+        # best guess
+        if [ "${REFERENCE_USER}" = "root" ]; then
+            REFERENCE_HOMEDIR=/root
+        else
+            REFERENCE_HOMEDIR=/home/${REFERENCE_USER}
+        fi
+    fi
+    REFERENCE_WORK_TREE="${REFERENCE_HOMEDIR}"
+elif [ "${TARGET}" = "host" ]; then
+    CHECKED_OUT_HOMEDIR=
+    WORK_TREE=/
+    CFG_REPO_NAME="host"
+    REFERENCE_HOMEDIR=
+    REFERENCE_WORK_TREE=/
+fi
+
+REPO_USER_ID=$(  ${ROOT_DOAS_CMD} pw user show -n ${REPO_OWNER} | awk -F ':' '{print $3}' )
+REPO_GROUP_ID=$( ${ROOT_DOAS_CMD} pw user show -n ${REPO_OWNER} | awk -F ':' '{print $4}' )
 
 env_set LC_ALL "${LC_ALL}"
 env_set CFG_VERSION "${CFG_VERSION}"
@@ -363,21 +538,31 @@ env_set CFG_PKGNAME "${CFG_PKGNAME}"
 env_set TARGET "${TARGET:-host}"
 env_set MODE "${MODE:-passthrough}"
 env_set HOSTNAME "${HOSTNAME}"
-env_set USERNAME "${USERNAME}"
-env_set ROOT_DIR "${ROOT_DIR}"
+env_set CHECKED_OUT_HOST "${CHECKED_OUT_HOST}"
+env_set REFERENCE_HOST "${REFERENCE_HOST}"
+env_set CHECKED_OUT_USER "${CHECKED_OUT_USER}"
+env_set CHECKED_OUT_USER_EXISTS "${CHECKED_OUT_USER_EXISTS}"
+env_set CHECKED_OUT_HOMEDIR "${CHECKED_OUT_HOMEDIR}"
+env_set WORK_TREE "${WORK_TREE}"
+env_set REFERENCE_USER "${REFERENCE_USER}"
+env_set REFERENCE_USER_EXISTS "${REFERENCE_USER_EXISTS}"
+env_set REFERENCE_HOMEDIR "${REFERENCE_HOMEDIR}"
+env_set REFERENCE_WORK_TREE "${REFERENCE_WORK_TREE}"
+env_set REPO_OWNER "${REPO_OWNER}"
+env_set CO_USER_DOAS_CMD "${CO_USER_DOAS_CMD}"
+env_set REPO_OWNER_DOAS_CMD "${REPO_OWNER_DOAS_CMD}"
+env_set ROOT_DOAS_CMD "${ROOT_DOAS_CMD}"
+env_set CFG_ROOT_DIR "${CFG_ROOT_DIR}"
 env_set ZPOOL "${ZPOOL}"
-env_set ROOT_ZFS "${ROOT_ZFS}"
+env_set CFG_ROOT_ZFS "${CFG_ROOT_ZFS}"
 env_set DRY_RUN "${DRY_RUN}"
 env_set USE_ZFS "${USE_ZFS}"
 env_set USE_DEBUG "${USE_DEBUG}"
 env_set PATH "${PATH}"
 env_set VERBOSE "${VERBOSE}"
-env_set TEST_ENV "${USERNAME}"
-env_set USER_ID "${USER_ID}"
-env_set GROUP_ID "${GROUP_ID}"
-env_set USER_HOMEDIR "${USER_HOMEDIR}"
+env_set REPO_USER_ID "${REPO_USER_ID}"
+env_set REPO_GROUP_ID "${REPO_GROUP_ID}"
 env_set CFG_REPO_NAME "${CFG_REPO_NAME}"
-env_set WORK_TREE "${WORK_TREE}"
 
 env_export
 
@@ -390,42 +575,41 @@ fi
 
 # DRY_RUN_CMD="${ECHO_CMD}"
 
-
 [ -n "${DRY_RUN_CMD}" ] && echo
 [ -n "${DRY_RUN_CMD}" ] && echo "This is a dry run. The following commands will be executed if you remove -n:"
 
 
-
 if [ "${USE_ZFS}" = "yes" ]; then
-    if [ -n "$(zfs list -H ${ROOT_ZFS} 2>&1 | grep 'does not exist')" ]; then
-        ${DRY_RUN_CMD} ${DOAS_CMD} zfs create -p -o mountpoint="${ROOT_DIR}" "${ROOT_ZFS}"
+    if [ -n "$(zfs list -H ${CFG_ROOT_ZFS} 2>&1 | grep 'does not exist')" ]; then
+        ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} zfs create -p -o mountpoint="${CFG_ROOT_DIR}" "${CFG_ROOT_ZFS}"
     fi
     if [ -z "${DRY_RUN_CMD}" ]; then
         # The current mountpoint can differ
         # e.g. when the pool is mounted in an alternate location
-        CURRENT_ROOT_DIR="$(${DOAS_CMD} zfs get -H -o value mountpoint ${ROOT_ZFS})"
-        if [ ! "${CURRENT_ROOT_DIR}" = "${ROOT_DIR}" ]; then
-            msg_error "${ROOT_DIR} is currently mounted on ${CURRENT_ROOT_DIR}"
+        CURRENT_ROOT_DIR="$(${ROOT_DOAS_CMD} zfs get -H -o value mountpoint ${CFG_ROOT_ZFS})"
+        if [ ! "${CURRENT_ROOT_DIR}" = "${CFG_ROOT_DIR}" ]; then
+            msg_error "${CFG_ROOT_DIR} is currently mounted on ${CURRENT_ROOT_DIR}"
             exit 4
         fi
-        if [ ! -d "${ROOT_DIR}" ]; then
-            msg_error "${ROOT_DIR} does not exist"
+        if [ ! -d "${CFG_ROOT_DIR}" ]; then
+            msg_error "${CFG_ROOT_DIR} does not exist"
             exit 5
         fi
     fi
 fi
 
-CFG_GIT_ZFS="${ROOT_ZFS}/rw_repos/${HOSTNAME}/${CFG_REPO_NAME}"
-CFG_GIT_DIR="${ROOT_DIR}/rw_repos/${HOSTNAME}/${CFG_REPO_NAME}"
-CFG_GITK_DIR="${ROOT_DIR}/gitk/${HOSTNAME}/${CFG_REPO_NAME}"
+
+CFG_GIT_ZFS="${CFG_ROOT_ZFS}/rw_repos/${REFERENCE_HOST}/${CFG_REPO_NAME}"
+CFG_GIT_DIR="${CFG_ROOT_DIR}/rw_repos/${REFERENCE_HOST}/${CFG_REPO_NAME}"
+CFG_GITK_DIR="${CFG_ROOT_DIR}/gitk/${REFERENCE_HOST}/${CFG_REPO_NAME}"
 CFG_GITK_SYMLINK="${CFG_GITK_DIR}/.git"
-HOST_INFO_DIR="${ROOT_DIR}/info/${HOSTNAME}"
+HOST_INFO_DIR="${CFG_ROOT_DIR}/info/${CHECKED_OUT_HOST}"
 
 if [ ! -d "${CFG_GIT_DIR}" ]; then
     if [ "${USE_ZFS}" = "yes" ]; then
-        ${DRY_RUN_CMD} ${DOAS_CMD} zfs create -p "${CFG_GIT_ZFS}"
+        ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} zfs create -p "${CFG_GIT_ZFS}"
     else
-        ${DRY_RUN_CMD} ${DOAS_CMD} mkdir -p "${CFG_GIT_DIR}"
+        ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} mkdir -p "${CFG_GIT_DIR}"
     fi
     if [ -z "${DRY_RUN_CMD}" -a ! -d "${CFG_GIT_DIR}" ]; then
         msg_error "${CFG_GIT_DIR} does not exist"
@@ -434,15 +618,15 @@ if [ ! -d "${CFG_GIT_DIR}" ]; then
 fi
 
 if [ ! -d "${HOST_INFO_DIR}" ]; then
-    ${DRY_RUN_CMD} ${DOAS_CMD} mkdir -p "${HOST_INFO_DIR}"
+    ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} mkdir -p "${HOST_INFO_DIR}"
 fi
 
 pkg_info() {
     if [ -z "${DRY_RUN_CMD}" ]; then
-        ${DOAS_CMD} pkg prime-origins | uniq | \
-            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/pkg_prime_info.txt;
-        ${DOAS_CMD} pkg info | \
-            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/pkg_full_info.txt;
+        ${ROOT_DOAS_CMD} pkg prime-origins | uniq | \
+            ${ROOT_DOAS_CMD} dd of="${HOST_INFO_DIR}"/pkg_prime_info.txt;
+        ${ROOT_DOAS_CMD} pkg info | \
+            ${ROOT_DOAS_CMD} dd of="${HOST_INFO_DIR}"/pkg_full_info.txt;
     else
         echo "This would dump the output of 'pkg prime-origins | uniq' to ${HOST_INFO_DIR}/pkg_prime_info.txt"
         echo "This would dump the output of 'pkg info' to ${HOST_INFO_DIR}/pkg_full_info.txt"
@@ -451,8 +635,8 @@ pkg_info() {
 
 zfs_base_info() {
     if [ -z "${DRY_RUN_CMD}" ]; then
-        ${DOAS_CMD} zfs list -o ${ZFS_BASE_PROPERTIES} | \
-            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_base_info.txt
+        ${ROOT_DOAS_CMD} zfs list -o ${ZFS_BASE_PROPERTIES} | \
+            ${ROOT_DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_base_info.txt
     else
         echo "This would dump the output of 'zfs list -o <ZFS_BASE_PROPERTIES>' to ${HOST_INFO_DIR}/zfs_base_info.txt"
     fi
@@ -460,8 +644,8 @@ zfs_base_info() {
 
 zfs_full_info() {
     if [ -z "${DRY_RUN_CMD}" ]; then
-        ${DOAS_CMD} zfs list -o ${ZFS_FULL_PROPERTIES} | \
-            ${DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_full_info.txt
+        ${ROOT_DOAS_CMD} zfs list -o ${ZFS_FULL_PROPERTIES} | \
+            ${ROOT_DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_full_info.txt
     else
         echo "This would dump the output of 'zfs list -o <ZFS_FULL_PROPERTIES>' to ${HOST_INFO_DIR}/zfs_full_info.txt"
     fi
@@ -469,49 +653,52 @@ zfs_full_info() {
 
 [ -z "DRY_RUN_CMD" ] && check_for_git
 
+msg "This command matches the checked-out state of ${CHECKED_OUT_HOST}:${WORK_TREE} against the recorded state of ${REFERENCE_HOST}:${REFERENCE_WORK_TREE} in git repository ${CFG_GIT_DIR}"
+[ "${SHOW_SUMMARY}" = "yes" ] && exit
+
 if [ ! -L "${CFG_GITK_SYMLINK}" ]; then
-    ${DRY_RUN_CMD} ${DOAS_CMD} mkdir -p "${CFG_GITK_DIR}"
-    ${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
-    ${DRY_RUN_CMD} ${USER_DOAS_CMD} ln -sF "${CFG_GIT_DIR}" "${CFG_GITK_SYMLINK}"
+    ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} mkdir -p "${CFG_GITK_DIR}"
+    ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} chown -R ${REPO_USER_ID}:${REPO_GROUP_ID} "${CFG_GITK_DIR}"
+    ${DRY_RUN_CMD} ${REPO_OWNER_DOAS_CMD} ln -sF "${CFG_GIT_DIR}" "${CFG_GITK_SYMLINK}"
 fi
 
-${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GIT_DIR}"
-${DRY_RUN_CMD} ${DOAS_CMD} chown ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
+${DRY_RUN_CMD} ${ROOT_DOAS_CMD} chown -R ${REPO_USER_ID}:${REPO_GROUP_ID} "${CFG_GIT_DIR}"
+${DRY_RUN_CMD} ${ROOT_DOAS_CMD} chown ${REPO_USER_ID}:${REPO_GROUP_ID} "${CFG_GITK_DIR}"
 
 if [ ! -f "${CFG_GIT_DIR}/HEAD" ]; then
-    ${DRY_RUN_CMD} ${USER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} init
-    ${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GIT_DIR}"
+    ${DRY_RUN_CMD} ${REPO_OWNER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} init
+    ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} chown -R ${REPO_USER_ID}:${REPO_GROUP_ID} "${CFG_GIT_DIR}"
 fi
 
 if [ "${MODE}" = "passthrough" ]; then
     if [ "${TARGET}" = "host" ]; then
-        ${DRY_RUN_CMD} ${DOAS_CMD}      ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
+        ${DRY_RUN_CMD} ${ROOT_DOAS_CMD}       ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
     else
-        ${DRY_RUN_CMD} ${USER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
+        ${DRY_RUN_CMD} ${REPO_OWNER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
     fi
 elif [ "${MODE}" = "add" ]; then
     if [ "${TARGET}" = "host" ]; then
         pkg_info
         zfs_base_info
         zfs_full_info
-        ${DRY_RUN_CMD} ${DOAS_CMD}      ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${BASE_HOST_ADD_ITEMS}
+        ${DRY_RUN_CMD} ${ROOT_DOAS_CMD}       ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${BASE_HOST_ADD_ITEMS}
     else
-        ${DRY_RUN_CMD} ${USER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${WORK_TREE}
+        ${DRY_RUN_CMD} ${REPO_OWNER_DOAS_CMD} ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${WORK_TREE}
     fi
 elif [ "${MODE}"="gui" ]; then
     if [ -z "${DRY_RUN_CMD}" ]; then
         check_for_gitk
-        cd "${CFG_GITK_DIR}" && ${USER_DOAS_CMD} ${GITK_CMD} &
+        cd "${CFG_GITK_DIR}" && ${REPO_OWNER_DOAS_CMD} ${GITK_CMD} &
     else
-        ${DRY_RUN_CMD} cd "${CFG_GITK_DIR}" \&\& ${USER_DOAS_CMD} ${GITK_CMD} \&
+        ${DRY_RUN_CMD} cd "${CFG_GITK_DIR}" \&\& ${REPO_OWNER_DOAS_CMD} ${GITK_CMD} \&
     fi
 fi
 
-${DRY_RUN_CMD} ${DOAS_CMD} chown -R ${USER_ID}:${GROUP_ID} "${CFG_GIT_DIR}"
-${DRY_RUN_CMD} ${DOAS_CMD} chown ${USER_ID}:${GROUP_ID} "${CFG_GITK_DIR}"
+${DRY_RUN_CMD} ${ROOT_DOAS_CMD} chown -R ${REPO_USER_ID}:${REPO_GROUP_ID} "${CFG_GIT_DIR}"
+${DRY_RUN_CMD} ${ROOT_DOAS_CMD} chown ${REPO_USER_ID}:${REPO_GROUP_ID} "${CFG_GITK_DIR}"
 
 # Example of running another script with the gathered environment
-# env -i ${CMD_ENV_S:+-S "${CMD_ENV_S}"} ${DRY_RUN_CMD} ${DOAS_CMD} ${GIT_CMD} \
+# env -i ${CMD_ENV_S:+-S "${CMD_ENV_S}"} ${DRY_RUN_CMD} ${ROOT_DOAS_CMD} ${GIT_CMD} \
 #     --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} ${CMD} ${1+"$@"}
 
 [ -n "${DRY_RUN_CMD}" ] && echo

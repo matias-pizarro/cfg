@@ -12,14 +12,14 @@
 /etc/zfs/exports.lock
 /home
 /lib
-/libexec  
+/libexec
 /proc
 /rescue
-/root   
+/root
 /sbin
 /sys
 /tmp
-/usr/bin  
+/usr/bin
 /usr/home
 /usr/include
 /usr/lib
@@ -29,7 +29,7 @@
 /usr/local/bin
 /usr/local/cfg/gitk/*/*
 /usr/local/cfg/ro_repos
-/usr/local/cfg/rw_repos  
+/usr/local/cfg/rw_repos
 /usr/local/etc/cups/subscriptions.conf*
 /usr/local/etc/sasldb2.db
 /usr/local/etc/ssl
