@@ -42,7 +42,7 @@
 # create ro_repos
 
 LC_ALL=C
-CFG_VERSION='0.1.9'
+CFG_VERSION='0.1.10'
 CFG_NAME="cfg"
 CFG_PKGNAME="${CFG_NAME}-${CFG_VERSION}"
 TARGET=
@@ -488,19 +488,32 @@ if [ "${SUDO_SCORE}" = "1" ]; then
     fi
 fi
 
+[ "${MISSING_DOAS_ROOT_PERMISSIONS}" = "yes" ]       || [ "${MISSING_SUDO_ROOT_PERMISSIONS}" = "yes" ]       && MISSING_PERMISSIONS=yes
+[ "${MISSING_DOAS_CO_PERMISSIONS}" = "yes" ]         || [ "${MISSING_SUDO_CO_PERMISSIONS}" = "yes" ]         && MISSING_PERMISSIONS=yes
+[ "${MISSING_DOAS_REPO_OWNER_PERMISSIONS}" = "yes" ] || [ "${MISSING_SUDO_REPO_OWNER_PERMISSIONS}" = "yes" ] && MISSING_PERMISSIONS=yes
 
-if [ "${CO_USER_DOAS_CMD}" = "none" -o "${REPO_OWNER_DOAS_CMD}" = "none" ]; then
+
+if [ "${ROOT_DOAS_CMD}" = "none" -o "${CO_USER_DOAS_CMD}" = "none" -o "${REPO_OWNER_DOAS_CMD}" = "none" ]; then
     if [ "${DOAS_CMD}" = "none" -a "${SUDO_CMD}" = "none" ]; then
-        msg_error "doas and sudo executables not found. Please run as root."
+        msg_warn "doas and sudo executables not found."
+        msg_warn "This tool will only be able to leverage the resources your user has direct access to"
     fi
+fi
 
+if [ "${MISSING_PERMISSIONS}" = "yes" ]; then
     # TODO: narrow down permission recommendations
     msg "You need to add one of the following permissions for each user:"
-    [ -n "${MISSING_DOAS_CO_PERMISSIONS}" ] && msg_warn \
-        "  - /usr/local/etc/doas.conf: permit nopass keepenv ${CMD_USER} as ${CHECKED_OUT_USER}"
-    [ -n "${MISSING_SUDO_CO_PERMISSIONS}" ] && msg_warn \
-        "  - /usr/local/etc/sudoers.d/cfg.conf: ${CMD_USER} ALL=(${CHECKED_OUT_USER}) ALL"
-    if [ ! "${REPO_OWNER}" = "${CHECKED_OUT_USER}" ]; then
+    [ -n "${MISSING_DOAS_ROOT_PERMISSIONS}" ] && msg_warn \
+        "  - /usr/local/etc/doas.conf: permit nopass keepenv ${CMD_USER} as root"
+    [ -n "${MISSING_SUDO_ROOT_PERMISSIONS}" ] && msg_warn \
+        "  - /usr/local/etc/sudoers.d/cfg.conf: ${CMD_USER} ALL=(root) ALL"
+    if [ ! "${CHECKED_OUT_USER}" = "root" ]; then
+        [ -n "${MISSING_DOAS_CO_PERMISSIONS}" ] && msg_warn \
+            "  - /usr/local/etc/doas.conf: permit nopass keepenv ${CMD_USER} as ${CHECKED_OUT_USER}"
+        [ -n "${MISSING_SUDO_CO_PERMISSIONS}" ] && msg_warn \
+            "  - /usr/local/etc/sudoers.d/cfg.conf: ${CMD_USER} ALL=(${CHECKED_OUT_USER}) ALL"
+    fi
+    if [ ! "${REPO_OWNER}" = "${CHECKED_OUT_USER}" -a ! "${REPO_OWNER}" = "root" ]; then
         [ -n "${MISSING_DOAS_REPO_OWNER_PERMISSIONS}" ] && msg_warn \
             "  - /usr/local/etc/doas.conf: permit nopass keepenv ${CMD_USER} as ${REPO_OWNER}"
         [ -n "${MISSING_SUDO_REPO_OWNER_PERMISSIONS}" ] && msg_warn \
@@ -656,6 +669,15 @@ zfs_full_info() {
     fi
 }
 
+sysctl_output() {
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        ${ROOT_DOAS_CMD} sysctl -a | \
+            ${ROOT_DOAS_CMD} dd of="${HOST_INFO_DIR}"/sysctl_output.txt
+    else
+        echo "This would dump the output of 'sysctl -a' to ${HOST_INFO_DIR}/sysctl_output.txt"
+    fi
+}
+
 [ -z "DRY_RUN_CMD" ] && check_for_git
 
 msg "This command matches the checked-out state of ${CHECKED_OUT_HOST}:${WORK_TREE} against the recorded state of ${REFERENCE_HOST}:${REFERENCE_WORK_TREE} in git repository ${CFG_GIT_DIR}"
@@ -686,6 +708,9 @@ elif [ "${MODE}" = "add" ]; then
         pkg_info
         zfs_base_info
         zfs_full_info
+        # TODO: define a meaningful subset of values to capture
+        # the current 19K+ entries using 900 Kb might be overkill
+        # sysctl_output
         ${DRY_RUN_CMD} ${ROOT_DOAS_CMD}       ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add ${BASE_HOST_ADD_ITEMS}
         ${DRY_RUN_CMD} ${ROOT_DOAS_CMD}       ${GIT_CMD} --git-dir="${CFG_GIT_DIR}" --work-tree=${WORK_TREE} add -f ${BASE_HOST_FORCE_ADD_ITEMS}
     else
