@@ -8,6 +8,8 @@ cfg
 
 Utility to version-control machine and user configurations.
 
+Files to create a FreeBSD package can be found in directory `pkg`
+
 * TODO handle creation of rw clone of ro repos
 * TODO msg_debug, _error etc...
 * at the moment we can compare a user against itself, across arbitrary hosts
