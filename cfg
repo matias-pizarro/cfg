@@ -42,7 +42,7 @@
 # create ro_repos
 
 LC_ALL=C
-CFG_VERSION='0.1.11'
+CFG_VERSION='0.1.12'
 CFG_NAME="cfg"
 CFG_PKGNAME="${CFG_NAME}-${CFG_VERSION}"
 TARGET=
@@ -491,7 +491,12 @@ fi
 [ "${MISSING_DOAS_ROOT_PERMISSIONS}" = "yes" ]       || [ "${MISSING_SUDO_ROOT_PERMISSIONS}" = "yes" ]       && MISSING_PERMISSIONS=yes
 [ "${MISSING_DOAS_CO_PERMISSIONS}" = "yes" ]         || [ "${MISSING_SUDO_CO_PERMISSIONS}" = "yes" ]         && MISSING_PERMISSIONS=yes
 [ "${MISSING_DOAS_REPO_OWNER_PERMISSIONS}" = "yes" ] || [ "${MISSING_SUDO_REPO_OWNER_PERMISSIONS}" = "yes" ] && MISSING_PERMISSIONS=yes
-
+if [ "$(whoami)" = "root" ]; then
+    MISSING_PERMISSIONS=no
+    ROOT_DOAS_CMD=""
+    CO_USER_DOAS_CMD=""
+    REPO_OWNER_DOAS_CMD=""
+fi
 
 if [ "${ROOT_DOAS_CMD}" = "none" -o "${CO_USER_DOAS_CMD}" = "none" -o "${REPO_OWNER_DOAS_CMD}" = "none" ]; then
     if [ "${DOAS_CMD}" = "" -a "${SUDO_CMD}" = "" ]; then
