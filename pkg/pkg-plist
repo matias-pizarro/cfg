@@ -1,4 +1,0 @@
-bin/cfg
-%%DATADIR%%/cfg.conf.sample
-%%DATADIR%%/host.gitignore.sample
-share/man/man8/cfg.8.gz

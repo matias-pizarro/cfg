@@ -42,7 +42,7 @@
 # create ro_repos
 
 LC_ALL=C
-CFG_VERSION='0.1.12'
+CFG_VERSION='0.1.13'
 CFG_NAME="cfg"
 CFG_PKGNAME="${CFG_NAME}-${CFG_VERSION}"
 TARGET=
@@ -191,6 +191,21 @@ ZFS_BASE_PROPERTIES="\
 name,canmount,mounted,mountpoint,readonly,compression,copies,checksum,\
 encryptionroot,encryption,keyformat,keylocation,quota,atime,exec,setuid,copies,\
 sync,sharenfs,sharesmb\
+"
+
+ZFS_COMPARABLE_PROPERTIES="\
+name,type,origin,quota,\
+reservation,volsize,volblocksize,recordsize,mountpoint,sharenfs,checksum,\
+compression,atime,devices,exec,setuid,readonly,jailed,snapdir,\
+aclmode,aclinherit,canmount,xattr,copies,version,utf8only,\
+normalization,casesensitivity,vscan,nbmand,sharesmb,refquota,refreservation,\
+primarycache,secondarycache,defer_destroy,userrefs,logbias,dedup,mlslabel,\
+sync,dnodesize,clones,volmode,\
+filesystem_limit,sslimit,filesystem_count,sscount,snapdev,acltype,context,\
+fscontext,defcontext,rootcontext,relatime,redundant_metadata,overlay,resumetok,\
+receive_resume_token,encryption,keylocation,keyformat,pbkdf2iters,\
+encryptionroot,keystatus,special_small_blocks,redact_snaps,\
+prefetch\
 "
 
 ZFS_FULL_PROPERTIES="\
@@ -681,6 +696,15 @@ zfs_base_info() {
     fi
 }
 
+zfs_comparable_info() {
+    if [ -z "${DRY_RUN_CMD}" ]; then
+        ${ROOT_DOAS_CMD} zfs list -o ${ZFS_COMPARABLE_PROPERTIES} | \
+            ${ROOT_DOAS_CMD} dd of="${HOST_INFO_DIR}"/zfs_comparable_info.txt
+    else
+        echo "This would dump the output of 'zfs list -o <ZFS_COMPARABLE_PROPERTIES>' to ${HOST_INFO_DIR}/zfs_comparable_info.txt"
+    fi
+}
+
 zfs_full_info() {
     if [ -z "${DRY_RUN_CMD}" ]; then
         ${ROOT_DOAS_CMD} zfs list -o ${ZFS_FULL_PROPERTIES} | \
@@ -728,6 +752,7 @@ elif [ "${MODE}" = "add" ]; then
     if [ "${TARGET}" = "host" ]; then
         pkg_info
         zfs_base_info
+        zfs_comparable_info
         zfs_full_info
         # TODO: define a meaningful subset of values to capture
         # the current 19K+ entries using 900 Kb might be overkill
