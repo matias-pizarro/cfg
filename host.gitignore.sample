@@ -1,6 +1,6 @@
-/.cache
-/bin
-/boot
+/.cache/
+/bin/
+/boot/
 !/boot/loader.conf
 /compat/
 /dev/
@@ -11,68 +11,70 @@
 /etc/spwd.db
 /etc/ssh/ssh_host_*_key
 /etc/zfs/exports.lock
+/etc/hostid
+/etc/machine-id
+/etc/ssh/ssh_host_*
 
-/home
-/lib
-/libexec
-/proc
-/rescue
-/root
-/sbin
-/sys
-/tmp
-/usr/bin
-/usr/home
-/usr/include
-/usr/lib
-/usr/lib32
-/usr/libdata
-/usr/libexec
+/home/
+/lib/
+/libexec/
+/proc/
+/rescue/
+/root/
+/sbin/
+/sys/
+/tmp/
+/usr/bin/
+/usr/home/
+/usr/include/
+/usr/lib/
+/usr/lib32/
+/usr/libdata/
+/usr/libexec/
 
-/usr/local/bin
+/usr/local/bin/
 /usr/local/cfg/gitk/*/*
-/usr/local/cfg/ro_repos
-/usr/local/cfg/rw_repos
+/usr/local/cfg/ro_repos/
+/usr/local/cfg/rw_repos/
 
 /usr/local/etc/cups/subscriptions.conf*
 /usr/local/etc/sasldb2.db
-/usr/local/etc/ssl
+/usr/local/etc/ssl/
 
-/usr/local/go121
-/usr/local/hdf5
-/usr/local/include
-/usr/local/lib
-/usr/local/lib32
-/usr/local/libdata
-/usr/local/libexec
-/usr/local/llvm*
-/usr/local/openjdk17
-/usr/local/openjdk8
-/usr/local/openssl
-/usr/local/poudriere
+/usr/local/go[0-9]*/
+/usr/local/hdf5/
+/usr/local/include/
+/usr/local/lib/
+/usr/local/lib32/
+/usr/local/libdata/
+/usr/local/libexec/
+/usr/local/llvm*/
+/usr/local/openjdk17/
+/usr/local/openjdk8/
+/usr/local/openssl/
+/usr/local/poudriere/
 /usr/local/etc/poudriere.d/jails/*/timestamp
-/usr/local/sbin
+/usr/local/sbin/
 /usr/local/share/**/*
 !/usr/local/share/polkit-1
 !/usr/local/share/polkit-1/**/*
-/usr/local/x86_64-portbld-freebsd14.0/
 
-/usr/ports
-/usr/sbin
-/usr/share
-/usr/src
-/usr/tests
-/var/backups
-/var/cache
-/var/crash
-/var/db
-/var/lib
-/var/log
-/var/mail
-/var/msgs
-/var/run
-/var/spool
-/var/tmp
+/usr/ports/
+/usr/sbin/
+/usr/share/
+/usr/src/
+/usr/tests/
+/var/backups/
+/var/cache/
+/var/crash/
+/var/db/
+/var/lib/
+/var/log/
+/var/mail/
+/var/msgs/
+/var/run/
+/var/spool/
+/var/tmp/
 
 # unbound
 /var/unbound/forward.conf
@@ -81,7 +83,7 @@
 # vm
 /usr/local/vm/.iso
 /usr/local/vm/.img
-/usr/local/vm/images
+/usr/local/vm/images/
 /usr/local/vm/**/*.img
 /usr/local/vm/**/*.lock
 /usr/local/vm/**/*.log
@@ -90,10 +92,16 @@
 # poudrière
 /usr/local/etc/poudriere.d/ports/**/timestamp
 
+# Ports
+/usr/local/x86_64-portbld-freebsd[0-9]*.[0.9]/
+
 # vmware (guest)
-/etc/vmware-tools
-/usr/local/etc/pam.d/vmtoolsd
+/etc/vmware-tools/
+/usr/local/etc/pam.d/vmtoolsd/
 /usr/local/etc/rc.d/vmware-*
+
+# Mounts
+/devel/
 
 # devel/binutils
 /usr/local/x86_64-portbld-freebsd*
@@ -102,8 +110,8 @@
 /run/lock/podman-cni.lock
 
 # Google Cloud SDK
-/usr/local/google-cloud-sdk
+/usr/local/google-cloud-sdk/
 
 # Applications
-/usr/local/openjdk11
-/usr/local/www/jitsi-meet
+/usr/local/openjdk11/
+/usr/local/www/jitsi-meet/

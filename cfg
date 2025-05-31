@@ -42,7 +42,7 @@
 # create ro_repos
 
 LC_ALL=C
-CFG_VERSION='0.1.13'
+CFG_VERSION='0.1.14'
 CFG_NAME="cfg"
 CFG_PKGNAME="${CFG_NAME}-${CFG_VERSION}"
 TARGET=

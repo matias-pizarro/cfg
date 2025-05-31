@@ -1,0 +1,7 @@
+.cache
+.dbus
+.lesshst
+./*_history
+.ssh/known_hosts*
+HW_PROBE
+reference_user

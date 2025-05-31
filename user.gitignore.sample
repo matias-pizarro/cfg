@@ -1,120 +1,170 @@
 **/.lock
+**/*.lock
 *.sublime-workspace
 *.sublime_session
 .*-hsts
 .*authority
 .*history
 *.sqlite
-backups
+UserFeedback*.conf
+venvs/
 
-.cache
-.cargo
-.ccache
-.cfg
+/.agent
+/.cache
+/.cargo
+/.ccache
+/.cfg
 
-.config/caja/accels
-.config/chromium
-.config/Code - OSS
-.config/dconf/user
-.config/geany/geany_socket_*
-.config/GIMP
-.config/google-chrome
-.config/plasma-org.kde.plasma.desktop-appletsrc
-.config/kde.org/UserFeedback*
-.config/libreoffice
-.config/session/kwin_saved*
-.config/leafpad/leafpadrc
-.config/libreoffice/4/user/config/javasettings_FreeBSD_X86_64.xml
-.config/libreoffice/4/user/GraphicsRenderTests.log
-.config/libreoffice/4/user/pack
-.config/libreoffice/4/user/registrymodifications.xcu
-.config/plasmashellrc
-.config/okularrc
-.config/pulse
-.config/repos
-.config/tmux/resurrect
-.dbus
-.dzen2-fifo
-.fehbg*
-.fonts/.uuid
-.lesshst
-.config/plasmanotifyrc
-.config/QtProject.conf
-.config/session/*
-.local/share/*
+/.fonts
+.cache/
+/.config/slack-term/
+/.dbus
+/.hw_inventory
+/.ipython/profile_default/db
+/.local/share/baloo/index*
+/.local/share/kactivitymanagerd/resources
+/.local/share/kded6/keyboard/session
+/.local/share/klipper/history2.lst
+/.local/share/kscreen
+/.local/share/sddm/*-session.log
+/.local/state
+/.Xauthority
+UserFeedback*.conf
+
+/.config/caja/accels
+/.config/chromium
+/.config/Code - OSS
+/.config/dconf/user
+/.config/geany/geany_socket_*
+/.config/GIMP
+/.config/google-chrome
+/.config/plasma-org.kde.plasma.desktop-appletsrc
+/.config/kde.org/UserFeedback*
+/.config/libreoffice
+/.config/session/kwin_saved*
+/.config/leafpad/leafpadrc
+/.config/libreoffice/4/user/config/javasettings_FreeBSD_X86_64.xml
+/.config/libreoffice/4/user/GraphicsRenderTests.log
+/.config/libreoffice/4/user/pack
+/.config/libreoffice/4/user/registrymodifications.xcu
+/.config/plasmashellrc
+/.config/okularrc
+/.config/pulse
+/.config/repos
+/.config/tmux/resurrect
+/.dbus
+/.dzen2-fifo
+/.fehbg*
+/.fonts/.uuid
+/.lesshst
+/.config/plasmanotifyrc
+/.config/QtProject.conf
+/.config/session/*
+/.local/share/*
 !.local/share/applications
 !.local/share/user-places.xbel
 !.local/share/dolphin
-.local/share/dolphin/*
+/.local/share/dolphin/*
 !.local/share/dolphin/view_properties
-.local/share/dolphin/view_properties/*
+/.local/share/dolphin/view_properties/*
 !.local/share/dolphin/view_properties/global
 !.local/share/fonts
 !.local/share/mime
 !.local/share/plank
-.mozilla
-.pki/nssdb/*.db
-.purple/status.xml
-.serverauth.*
-.ssh/*_ed25519
-.ssh/id_rsa
-.ssh/known_hosts*
-.ssh/legacy
-.thrash
-.thunderbird
-typescript
+/.mozilla
+/.pki/nssdb/*.db
+/.purple/status.xml
+/.serverauth.*
+/.ssh/*_ed25519
+/.ssh/id_rsa
+/.ssh/known_hosts*
+/.ssh/legacy
+/.thrash
+/.thunderbird
+/typescript
 
 # Beyond Compare license etc.
-.config/bcompare/BC*Key.txt
-.config/bcompare/BCState.xml
-.config/bcompare/BCSessions.xml
-.config/bcompare/*.xml.bak
-.config/bcompare/BCLOCK*
-.config/bcompare5/BCState.xml
+.config/b*compare*/*.xml.bak
+/.config/b*compare*/BCLOCK*
 
 # Sublime Text
-.config/sublime-text/Local/License.sublime_license
+/.config/sublime-text/Local/License.sublime_license
 
 # pipx
-.local/pipx/logs
-.local/pipx/py
-.local/pipx/shared/bin
-.local/pipx/shared/lib
-.local/pipx/shared/lib64
+/.local/pipx/logs
+/.local/pipx/py
+/.local/pipx/shared/bin
+/.local/pipx/shared/lib
+/.local/pipx/shared/lib64
+
+# Temporary pre-deletion location
+/.local/legacy
 
 # VS Code
-.vscode-oss
-.vscode-oss/extensions
+/.vscode-oss
+/.vscode-oss/extensions
 
 # QT
-.config/Trolltech.conf
+/.config/Trolltech.conf
 
-.gnupg
+# pulseaudio
+/.config/pulse/*-volumes.simple
+/.config/pulse/*-default-sink
+/.config/pulse/*-default-source
 
-.xsession-errors
-Desktop
-Documents
-Downloads
-downloads
-Music
-Pictures
-Public
-Templates
-Videos
+/.gnupg
 
+/.xsession-errors
 
-.config/htop/htoprc
-.jupyter/migrated
-.tmp
-.config/gtk-2.0/gtkfilechooser.ini
+/Backups/
+/Desktop/
+/Devel/
+/devel/
+/Documents/
+!/Documents/how-to
+/Documents/how-to/freebsd/install/hetzner/remote_install_with_mfsbsd/
+/docs/
+/Downloads/
+/Logs/
+/Music/
+/Notes/
+/Os/
+/Pictures/
+/Public/
+/Remote/
+/Templates/
+/Videos/
+/Work/
+
+tmp
+/.config/htop/htoprc
+/.jupyter/migrated
+/.tmp
+/.config/gtk-2.0/gtkfilechooser.ini
 
 # Recoll
-.recoll/mboxcache
-.recoll/xapiandb
+/.recoll/mboxcache
+/.recoll/xapiandb
 
-.config/Recoll.org/needidxretrydate
-.config/Recoll.org/recoll.ini
+/.config/Recoll.org/needidxretrydate
+/.config/Recoll.org/recoll.ini
 *.pid
 
 # VNC
-.vnc/tigervnc.history
+/.vnc/tigervnc.history
+
+# rclone mountpoint
+/remote/**/*
+
+# Beyond Compare
+/.config/bcompare5/BCState.xml
+
+# Gist
+/docs/how-to/freebsd/install/hetzner/remote_install_with_mfsbsd
+
+# misc
+tmp_trove
+logs/
+
+# Go
+/.pulumi-dev
